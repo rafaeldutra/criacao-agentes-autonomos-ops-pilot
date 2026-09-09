@@ -4,8 +4,9 @@
   "description": "",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "arena": "tsx src/arena.ts",
+    "arena": "node --env-file-if-exists=.env --import tsx src/arena.ts",
     "bench": "tsx src/bench.ts",
+    "seed": "tsx scripts/seed.ts",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },

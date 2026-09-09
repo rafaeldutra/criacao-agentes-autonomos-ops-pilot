@@ -1,0 +1,18 @@
+{
+  "services": [
+    { "id": "svc-api", "name": "api", "description": "Public API" },
+    { "id": "svc-checkout", "name": "checkout", "description": "Checkout flow" },
+    { "id": "svc-payments", "name": "payments", "description": "Payment processing" },
+    { "id": "svc-catalog", "name": "catalog", "description": "Product catalog" },
+    { "id": "svc-worker", "name": "worker", "description": "Async workers" }
+  ],
+  "alerts": [
+    { "id": "alt-001", "serviceId": "svc-api", "status": "firing", "severity": "high", "title": "API latency high", "createdAt": "2026-09-09T10:00:00.000Z" },
+    { "id": "alt-002", "serviceId": "svc-checkout", "status": "firing", "severity": "medium", "title": "Checkout error rate high", "createdAt": "2026-09-09T10:01:00.000Z" },
+    { "id": "alt-003", "serviceId": "svc-worker", "status": "firing", "severity": "critical", "title": "Worker queue stalled", "createdAt": "2026-09-09T10:02:00.000Z" },
+    { "id": "alt-004", "serviceId": "svc-payments", "status": "resolved", "severity": "high", "title": "Payment timeout", "createdAt": "2026-09-09T09:00:00.000Z", "resolvedAt": "2026-09-09T09:30:00.000Z" },
+    { "id": "alt-005", "serviceId": "svc-catalog", "status": "resolved", "severity": "medium", "title": "Catalog response slow", "createdAt": "2026-09-09T08:00:00.000Z", "resolvedAt": "2026-09-09T08:20:00.000Z" },
+    { "id": "alt-006", "serviceId": "svc-api", "status": "resolved", "severity": "low", "title": "API saturation", "createdAt": "2026-09-09T07:00:00.000Z", "resolvedAt": "2026-09-09T07:10:00.000Z" }
+  ],
+  "incidents": []
+}

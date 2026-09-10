@@ -27,7 +27,28 @@ export type ReasoningInput = string;
 
 export type ReasoningOptions = {
   maxIterations?: number;
+  replanner?: boolean;
 };
+
+export type ReflectionOptions = {
+  maxReflections?: number;
+  critic?: Critic;
+};
+
+export type CritiqueResult = {
+  approved: boolean;
+  feedback: string;
+};
+
+export type CriticInput = {
+  input: string;
+  answer: string;
+  observations: string;
+  reflection: number;
+  feedback?: string;
+};
+
+export type Critic = (input: CriticInput) => Promise<CritiqueResult>;
 
 export type ReasoningResult = {
   answer: string;

@@ -38,7 +38,15 @@ const PEState = Annotation.Root({
 const serialize = (value: unknown): string =>
   typeof value === "string" ? value : JSON.stringify(value);
 
-const createPlanGraph = (model: ReturnType<typeof createOpenRouterModel>, tools: AgentTools, iterationLimit: number) => {
+const toolError = (error: unknown): string =>
+  `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`;
+
+const createPlanGraph = (
+  model: ReturnType<typeof createOpenRouterModel>,
+  tools: AgentTools,
+  iterationLimit: number,
+  useReplanner: boolean,
+) => {
   const planner = async (state: typeof PEState.State) => {
     const result = await model.withStructuredOutput(planSchema).invoke([
       new SystemMessage(PLANNER_PROMPT),
@@ -58,7 +66,10 @@ const createPlanGraph = (model: ReturnType<typeof createOpenRouterModel>, tools:
 
     const executorModel = model.bindTools(Object.values(tools));
     const response = await executorModel.invoke([
-      new SystemMessage("Execute exactly one operational step with the available tools. Do not execute multiple steps."),
+      new SystemMessage(
+        "Execute exactly one operational step with the available tools. Do not execute multiple steps. " +
+          "For list_alerts, omit status when no filter is requested; if provided, status must be exactly firing or resolved.",
+      ),
       new HumanMessage(step),
     ]);
     const toolCall = response.tool_calls?.[0];
@@ -76,8 +87,12 @@ const createPlanGraph = (model: ReturnType<typeof createOpenRouterModel>, tools:
     const tool = Object.values(tools).find((candidate) => candidate.name === toolCall.name);
     if (!tool) throw new Error(`Unknown tool requested by executor: ${toolCall.name}`);
     const invoke = tool.invoke.bind(tool) as (input: Record<string, unknown>) => Promise<unknown>;
-    const result = await invoke(toolCall.args as Record<string, unknown>);
-    const serialized = serialize(result);
+    let serialized: string;
+    try {
+      serialized = serialize(await invoke(toolCall.args as Record<string, unknown>));
+    } catch (error) {
+      serialized = toolError(error);
+    }
     return {
       plan: remaining,
       done: [[step, serialized] as [string, string]],
@@ -112,13 +127,18 @@ const createPlanGraph = (model: ReturnType<typeof createOpenRouterModel>, tools:
   const route = (state: typeof PEState.State): "executor" | typeof END =>
     state.decision === "end" || !state.plan.length || state.iterations >= iterationLimit || state.iterations >= 8 ? END : "executor";
 
+  const executeRoute = (state: typeof PEState.State): "executor" | "replanner" | typeof END => {
+    if (state.iterations >= iterationLimit || state.iterations >= 8 || !state.plan.length) return END;
+    return useReplanner ? "replanner" : "executor";
+  };
+
   return new StateGraph(PEState)
     .addNode("planner", planner)
     .addNode("executor", executor)
     .addNode("replanner", replanner)
     .addEdge(START, "planner")
     .addEdge("planner", "executor")
-    .addEdge("executor", "replanner")
+    .addConditionalEdges("executor", executeRoute, { executor: "executor", replanner: "replanner", [END]: END })
     .addConditionalEdges("replanner", route, { executor: "executor", [END]: END })
     .compile();
 };
@@ -131,7 +151,7 @@ export const createPlanAndExecuteStrategy = (
   async run(input: ReasoningInput, options?: ReasoningOptions): Promise<ReasoningResult> {
     const startedAt = Date.now();
     const limit = maxIterations(options);
-    const result = await createPlanGraph(model, tools, Math.min(limit, 8)).invoke({ input });
+    const result = await createPlanGraph(model, tools, Math.min(limit, 8), options?.replanner !== false).invoke({ input });
     const trace = result.trace as TraceEvent[];
     const finalAnswer = result.answer || result.done.at(-1)?.[1] || "Plan execution completed.";
     if (!trace.some((event) => event.type === "answer")) trace.push(answer(finalAnswer));

@@ -67,7 +67,8 @@ export class InMemoryStore {
   }
 
   openIncident(title: string, service: string, severity: Severity): Incident {
-    const matchedService = this.snapshot.services.find((item) => item.name === service || item.id === service);
+    const normalizedService = service.toLowerCase() === "payment" ? "payments" : service;
+    const matchedService = this.snapshot.services.find((item) => item.name === normalizedService || item.id === normalizedService);
     if (!matchedService) throw new DomainError(`Service not found: ${service}`, "SERVICE_NOT_FOUND");
     const incident: Incident = {
       id: `inc-${String(this.snapshot.incidents.length + 1).padStart(3, "0")}`,

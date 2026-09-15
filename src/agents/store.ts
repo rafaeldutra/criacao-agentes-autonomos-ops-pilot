@@ -1,22 +1,13 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { z } from "zod";
-import type { Alert, AlertStatus, Incident, Service, Severity } from "./types.js";
+import type { Alert, AlertStatus, Incident, IncidentFilter, Runbook, Service, Severity } from "./types.js";
+import { DomainError, type OpsStore, type OpsStoreSnapshot, type StoreSnapshot as SharedStoreSnapshot } from "../store/ops-store.js";
+export { DomainError } from "../store/ops-store.js";
 
-export class DomainError extends Error {
-  constructor(message: string, readonly code: string) {
-    super(message);
-    this.name = "DomainError";
-  }
-}
+export type StoreSnapshot = SharedStoreSnapshot;
 
-export type StoreSnapshot = {
-  services: Service[];
-  alerts: Alert[];
-  incidents: Incident[];
-};
-
-const serviceSchema = z.object({ id: z.string(), name: z.string(), description: z.string().optional() });
+const serviceSchema = z.object({ id: z.string(), name: z.string(), description: z.string().optional(), tier: z.enum(["tier1", "tier2", "tier3"]).optional() });
 const alertSchema = z.object({
   id: z.string(),
   serviceId: z.string(),
@@ -25,6 +16,7 @@ const alertSchema = z.object({
   title: z.string(),
   createdAt: z.string(),
   resolvedAt: z.string().optional(),
+  summary: z.string().optional(),
 });
 const incidentSchema = z.object({
   id: z.string(),
@@ -41,22 +33,29 @@ const snapshotSchema = z.object({
   incidents: z.array(incidentSchema).default([]),
 });
 
-const clone = (snapshot: StoreSnapshot): StoreSnapshot => structuredClone(snapshot);
+const clone = <T>(snapshot: T): T => structuredClone(snapshot);
 
 export const readSeedFile = (seedPath = resolve(process.cwd(), "data", "seed.json")): StoreSnapshot => {
   const parsed: unknown = JSON.parse(readFileSync(seedPath, "utf8"));
   return snapshotSchema.parse(parsed);
 };
 
-export class InMemoryStore {
-  private snapshot: StoreSnapshot = { services: [], alerts: [], incidents: [] };
+export class InMemoryStore implements OpsStore {
+  private snapshot: OpsStoreSnapshot = { services: [], alerts: [], incidents: [], runbooks: [] };
 
-  reset(seed: StoreSnapshot = readSeedFile()): StoreSnapshot {
-    this.snapshot = clone(seed);
+  reset(seed: StoreSnapshot = readSeedFile()): OpsStoreSnapshot {
+    this.snapshot = {
+      ...clone(seed),
+      runbooks: [
+        { id: "runbook-checkout", service: "checkout", content: "Verifique erros de checkout, dependências de pagamentos e a taxa de conversão antes de mitigar.", updatedAt: "2026-09-09T00:00:00.000Z" },
+        { id: "runbook-payments", service: "payments", content: "Verifique timeouts, saúde dos provedores e filas de retry antes de reprocessar pagamentos.", updatedAt: "2026-09-09T00:00:00.000Z" },
+        { id: "runbook-auth", service: "auth", content: "Verifique autenticação, expiração de tokens e disponibilidade do provedor de identidade.", updatedAt: "2026-09-09T00:00:00.000Z" },
+      ],
+    };
     return this.read();
   }
 
-  read(): StoreSnapshot {
+  read(): OpsStoreSnapshot {
     return clone(this.snapshot);
   }
 
@@ -82,14 +81,30 @@ export class InMemoryStore {
     return { ...incident };
   }
 
-  resolveIncident(id: string): Incident {
+  listIncidents(filter: IncidentFilter = "open"): Incident[] {
+    return this.snapshot.incidents
+      .filter((incident) => filter === "all" || incident.status === filter)
+      .map((incident) => ({ ...incident }));
+  }
+
+  resolveIncident(id: string, summary?: string): Incident {
     const incident = this.snapshot.incidents.find((item) => item.id === id);
     if (!incident) throw new DomainError(`Incident not found: ${id}`, "INCIDENT_NOT_FOUND");
     if (incident.status === "resolved") throw new DomainError(`Incident already resolved: ${id}`, "INCIDENT_ALREADY_RESOLVED");
     incident.status = "resolved";
     incident.resolvedAt = new Date().toISOString();
+    incident.summary = summary;
     return { ...incident };
   }
+
+  consultRunbook(service: string): Runbook {
+    const normalized = service.toLowerCase();
+    const runbook = this.snapshot.runbooks.find((item) => item.service === normalized);
+    if (!runbook) throw new DomainError(`Runbook not found: ${service}`, "RUNBOOK_NOT_FOUND");
+    return { ...runbook };
+  }
+
+  close(): void {}
 }
 
 export const createSeededStore = (seedPath?: string): InMemoryStore => {

@@ -36,9 +36,26 @@ Mudanças seguem obrigatoriamente `speckit.specify` → `speckit.plan` → `spec
 
 Tarefas devem ser ordenadas por dependência, manter escopo claro e preservar o comportamento existente.
 
+### IX. Persistência local explícita
+
+A persistência operacional oficial usa SQLite via `node:sqlite` e `DatabaseSync`.
+O caminho de produção é configurado por `OPSPILOT_DB`, com default
+`./data/opspilot.db`; testes usam `:memory:`. O schema é criado de forma
+idempotente, consultas usam prepared statements e nenhum SQL pode ser
+montado por concatenação de entrada.
+
+### X. Reprodutibilidade de cenários
+
+O seed do cenário Mercadinho é idempotente e deve produzir o mesmo estado
+inicial em SQLite e nos doubles em memória. O store em memória permanece
+permitido somente para testes determinísticos e benchmark, enquanto a
+composição da aplicação injeta explicitamente o store escolhido.
+
 ## Stack obrigatória
 
-Node.js 22 LTS, TypeScript ESM strict, Zod, `node:test` via `tsx`, Express, Sequelize com MySQL e LangChain/LangGraph sobre OpenRouter.
+Node.js 22 LTS, TypeScript ESM strict, Zod, `node:test` via `tsx`, Express,
+SQLite nativo por `node:sqlite`/`DatabaseSync` e LangChain/LangGraph sobre
+OpenRouter. Sequelize/MySQL não são dependências de persistência operacional.
 
 ## Comandos oficiais
 
@@ -52,4 +69,4 @@ Node.js 22 LTS, TypeScript ESM strict, Zod, `node:test` via `tsx`, Express, Sequ
 
 Esta constituição orienta specs, planos, tarefas e implementações do OpsPilot. Alterações devem ser documentadas, revisadas e versionadas junto com o projeto.
 
-**Version**: 1.0.0 | **Ratified**: 2026-09-08 | **Last Amended**: 2026-09-08
+**Version**: 1.1.0 | **Ratified**: 2026-09-08 | **Last Amended**: 2026-09-15

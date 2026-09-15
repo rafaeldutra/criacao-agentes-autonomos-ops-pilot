@@ -1,6 +1,8 @@
 export type AlertStatus = "firing" | "resolved";
 export type IncidentStatus = "open" | "resolved";
 export type Severity = "low" | "medium" | "high" | "critical";
+export type ServiceTier = "tier1" | "tier2" | "tier3";
+export type IncidentFilter = "open" | "resolved" | "all";
 
 export type TraceEvent =
   | { type: "thought"; content: string }
@@ -65,6 +67,7 @@ export type Service = {
   id: string;
   name: string;
   description?: string;
+  tier?: ServiceTier;
 };
 
 export type Alert = {
@@ -85,4 +88,12 @@ export type Incident = {
   status: IncidentStatus;
   createdAt: string;
   resolvedAt?: string;
+  summary?: string;
+};
+
+export type Runbook = {
+  id: string;
+  service: string;
+  content: string;
+  updatedAt: string;
 };

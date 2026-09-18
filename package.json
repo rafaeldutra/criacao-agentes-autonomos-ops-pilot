@@ -6,6 +6,7 @@
     "dev": "node --env-file-if-exists=.env --import tsx src/index.ts",
     "arena": "node --env-file-if-exists=.env --import tsx src/arena.ts",
     "bench": "node --env-file-if-exists=.env --import tsx src/bench.ts",
+    "mcp": "tsx src/mcp/server.ts",
     "seed": "tsx scripts/seed.ts",
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
@@ -18,6 +19,7 @@
     "@langchain/core": "^1.2.9",
     "@langchain/langgraph": "^1.4.14",
     "@langchain/openai": "^1.5.11",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "express": "^5.2.1",
     "mysql": "^2.18.1",
     "sequelize": "^6.37.8",

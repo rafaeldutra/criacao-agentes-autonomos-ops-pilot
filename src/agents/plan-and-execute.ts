@@ -158,7 +158,7 @@ export const createPlanAndExecuteStrategy = (
     return {
       answer: finalAnswer,
       trace,
-      metrics: { llmCalls: result.llmCalls, latencyMs: Math.max(0, Date.now() - startedAt) },
+      metrics: { llmCalls: result.llmCalls, latencyMs: Math.max(0, Date.now() - startedAt), historyMessages: 0 },
     };
   },
 });

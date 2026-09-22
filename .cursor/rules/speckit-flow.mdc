@@ -1,0 +1,19 @@
+---
+description: Fluxo obrigatório Spec Kit (specify → plan → tasks → implement) no OpsPilot
+alwaysApply: true
+---
+
+# Spec Kit no OpsPilot
+
+Siga o Spec Kit em quatro etapas obrigatórias e em ordem:
+
+`/speckit-specify` → `/speckit-plan` → `/speckit-tasks` → `/speckit-implement`
+
+1. **specify** — escreve ou atualiza a spec da feature em Markdown versionado em `specs/`.
+2. **plan** — gera o plano de design e as decisões técnicas a partir da spec.
+3. **tasks** — decompõe o plano em tarefas ordenadas por dependência.
+4. **implement** — executa as tarefas; código, testes e typecheck devem permanecer verdes.
+
+Skills ficam em `.cursor/skills/speckit-*/SKILL.md`. Templates e scripts em `.specify/`. Constituição em `.specify/memory/constitution.md`.
+
+Specs são artefatos de primeira classe: devem ser criadas, revisadas e versionadas junto com o código. Nenhuma implementação começa sem uma spec aprovada.

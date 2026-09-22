@@ -30,13 +30,13 @@ OpsPilot é um copiloto de plantão que gerencia alertas e incidentes de produç
 
 ## Fluxo
 
-Siga o Spec Kit do GitHub Copilot em quatro etapas obrigatórias e em ordem:
+Siga o Spec Kit (integração Cursor em `.cursor/skills/`) em quatro etapas obrigatórias e em ordem:
 
-`speckit.specify` → `speckit.plan` → `speckit.tasks` → `speckit.implement`
+`/speckit-specify` → `/speckit-plan` → `/speckit-tasks` → `/speckit-implement`
 
-1. `speckit.specify` — escreve ou atualiza a spec da feature, em Markdown versionado em `specs/`.
-2. `speckit.plan` — gera o plano de design e as decisões técnicas a partir da spec.
-3. `speckit.tasks` — decompõe o plano em tarefas ordenadas por dependência.
-4. `speckit.implement` — executa as tarefas; código, testes e typecheck devem permanecer verdes, e então cria o commit.
+1. `/speckit-specify` — escreve ou atualiza a spec da feature, em Markdown versionado em `specs/`.
+2. `/speckit-plan` — gera o plano de design e as decisões técnicas a partir da spec.
+3. `/speckit-tasks` — decompõe o plano em tarefas ordenadas por dependência.
+4. `/speckit-implement` — executa as tarefas; código, testes e typecheck devem permanecer verdes, e então cria o commit.
 
 Specs são artefatos de primeira classe: devem ser criadas, revisadas e versionadas junto com o código. Nenhuma implementação começa sem uma spec aprovada.

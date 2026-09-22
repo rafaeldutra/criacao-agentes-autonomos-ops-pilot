@@ -10,4 +10,5 @@ export const maxIterations = (options?: ReasoningOptions): number => {
 export const metricsFromMessages = (startedAt: number, messages: readonly BaseMessage[]): Metrics => ({
   llmCalls: messages.filter((message) => message.getType() === "ai").length,
   latencyMs: Math.max(0, Date.now() - startedAt),
+  historyMessages: 0,
 });

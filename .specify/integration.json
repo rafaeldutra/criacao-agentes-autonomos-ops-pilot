@@ -2,14 +2,14 @@
   "version": "1.0.4",
   "integration_state_schema": 1,
   "installed_integrations": [
-    "copilot"
+    "cursor-agent"
   ],
   "integration_settings": {
-    "copilot": {
+    "cursor-agent": {
       "script": "ps",
       "invoke_separator": "-"
     }
   },
-  "integration": "copilot",
-  "default_integration": "copilot"
+  "integration": "cursor-agent",
+  "default_integration": "cursor-agent"
 }

@@ -15,6 +15,7 @@ export type TraceEvent =
 export type Metrics = {
   llmCalls: number;
   latencyMs: number;
+  historyMessages: number;
 };
 
 export type PlanStep = {

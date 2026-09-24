@@ -5,12 +5,18 @@ import type { AddressInfo } from "node:net";
 import { createApp } from "./server.js";
 import { HISTORY_WINDOW } from "./chat-history.js";
 import type { ReasoningStrategy } from "../agents/types.js";
+import { FakeMemoryStore } from "../memory/fake-memory-store.js";
 import { FakeConversationStore } from "../store/fake-conversation-store.js";
+import {
+  LEARNING_FIXTURES,
+  createFixtureLearningReflector,
+} from "../memory/learning-reflector.js";
+import type { MemoryStore, RememberResult } from "../memory/memory-store.js";
 
 const result = (answer: string) => ({
   answer,
   trace: [{ type: "answer" as const, content: answer }],
-  metrics: { llmCalls: 1, latencyMs: 0, historyMessages: 0 },
+  metrics: { llmCalls: 1, latencyMs: 0, historyMessages: 0, memoryFacts: 0, learningQueued: false },
 });
 
 const strategy = (name: string, run: ReasoningStrategy["run"] = async (input) => result(`${name}:${input}`)): ReasoningStrategy => ({
@@ -164,4 +170,124 @@ test("reports historyMessages 0, 3, and caps injected history at 12", async () =
     assert.equal(lines.at(-1), "user: current");
     assert.equal(lines[0], "assistant: h3");
   });
+});
+
+test("injects recalled memories when userId is present", async () => {
+  const conversations = new FakeConversationStore();
+  const unit = new Float32Array(384);
+  unit[0] = 1;
+  const memories = new FakeMemoryStore({ embed: async () => unit });
+  await memories.remember("ops-1", "User prefers black coffee");
+
+  let lastInput = "";
+  const stub = strategy("react", async (input) => {
+    lastInput = input;
+    return result("ok");
+  });
+
+  await withServer(createApp({ react: stub }, { conversations, memories }), async (server) => {
+    const response = await request(server, { message: "coffee prefs?", userId: "ops-1" });
+    assert.equal(response.status, 200);
+    const body = response.json as { metrics: { memoryFacts: number; historyMessages: number } };
+    assert.equal(body.metrics.memoryFacts, 1);
+    assert.equal(body.metrics.historyMessages, 0);
+    assert.match(lastInput, /\[Relevant memories\]/);
+    assert.match(lastInput, /User prefers black coffee/);
+  });
+});
+
+test("omitting userId yields memoryFacts 0 and keeps conversation behavior", async () => {
+  const conversations = new FakeConversationStore();
+  const unit = new Float32Array(384);
+  unit[0] = 1;
+  const memories = new FakeMemoryStore({ embed: async () => unit });
+  await memories.remember("ops-1", "secret fact");
+
+  let lastInput = "";
+  const stub = strategy("react", async (input) => {
+    lastInput = input;
+    return result("ok");
+  });
+
+  await withServer(createApp({ react: stub }, { conversations, memories }), async (server) => {
+    const response = await request(server, { message: "hello" });
+    assert.equal(response.status, 200);
+    const body = response.json as { conversationId: string; metrics: { memoryFacts: number } };
+    assert.ok(body.conversationId);
+    assert.equal(body.metrics.memoryFacts, 0);
+    assert.doesNotMatch(lastInput, /Relevant memories/);
+  });
+});
+
+test("rejects blank userId with 400", async () => {
+  await withServer(createApp({ react: strategy("react") }), async (server) => {
+    const response = await request(server, { message: "hello", userId: "   " });
+    assert.equal(response.status, 400);
+  });
+});
+
+test("queues learning after response without awaiting remember", async () => {
+  let resolveRemember!: () => void;
+  const rememberGate = new Promise<void>((resolve) => {
+    resolveRemember = resolve;
+  });
+  let completedRemember = false;
+
+  const memories: MemoryStore = {
+    remember: async (): Promise<RememberResult> => {
+      await rememberGate;
+      completedRemember = true;
+      return { id: "mem-1", created: true };
+    },
+    recall: async () => [],
+    forget: () => undefined,
+    close: () => undefined,
+  };
+
+  const stub = strategy("react", async () => result("ok"));
+  await withServer(
+    createApp(
+      { react: stub },
+      { memories, learningReflector: createFixtureLearningReflector() },
+    ),
+    async (server) => {
+      const response = await request(server, {
+        message: LEARNING_FIXTURES.preference,
+        userId: "learner-1",
+      });
+      assert.equal(response.status, 200);
+      assert.equal((response.json as { metrics: { learningQueued: boolean } }).metrics.learningQueued, true);
+      assert.equal(completedRemember, false);
+      resolveRemember();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      assert.equal(completedRemember, true);
+    },
+  );
+});
+
+test("omitting userId does not queue learning", async () => {
+  let rememberCalls = 0;
+  const memories: MemoryStore = {
+    remember: async () => {
+      rememberCalls += 1;
+      return { id: "x", created: true };
+    },
+    recall: async () => [],
+    forget: () => undefined,
+    close: () => undefined,
+  };
+
+  await withServer(
+    createApp(
+      { react: strategy("react") },
+      { memories, learningReflector: createFixtureLearningReflector() },
+    ),
+    async (server) => {
+      const response = await request(server, { message: LEARNING_FIXTURES.preference });
+      assert.equal(response.status, 200);
+      assert.equal((response.json as { metrics: { learningQueued: boolean } }).metrics.learningQueued, false);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      assert.equal(rememberCalls, 0);
+    },
+  );
 });

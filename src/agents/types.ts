@@ -16,6 +16,8 @@ export type Metrics = {
   llmCalls: number;
   latencyMs: number;
   historyMessages: number;
+  memoryFacts: number;
+  learningQueued: boolean;
 };
 
 export type PlanStep = {

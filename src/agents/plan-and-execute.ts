@@ -158,7 +158,13 @@ export const createPlanAndExecuteStrategy = (
     return {
       answer: finalAnswer,
       trace,
-      metrics: { llmCalls: result.llmCalls, latencyMs: Math.max(0, Date.now() - startedAt), historyMessages: 0 },
+      metrics: {
+        llmCalls: result.llmCalls,
+        latencyMs: Math.max(0, Date.now() - startedAt),
+        historyMessages: 0,
+        memoryFacts: 0,
+        learningQueued: false,
+      },
     };
   },
 });

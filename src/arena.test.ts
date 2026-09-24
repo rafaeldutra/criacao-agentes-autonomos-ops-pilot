@@ -9,7 +9,7 @@ const strategy = (name: string): ReasoningStrategy => ({
     return {
       answer: `${name} answer`,
       trace: [{ type: "answer", content: `${name} answer` }],
-      metrics: { llmCalls: 1, latencyMs: 0, historyMessages: 0 },
+      metrics: { llmCalls: 1, latencyMs: 0, historyMessages: 0, memoryFacts: 0, learningQueued: false },
     };
   },
 });

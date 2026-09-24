@@ -6,7 +6,7 @@ import type { ReasoningResult, ReasoningStrategy } from "./types.js";
 const result = (answer: string, observation: string): ReasoningResult => ({
   answer,
   trace: [{ type: "observation", content: observation }, { type: "answer", content: answer }],
-  metrics: { llmCalls: 1, latencyMs: 0, historyMessages: 0 },
+  metrics: { llmCalls: 1, latencyMs: 0, historyMessages: 0, memoryFacts: 0, learningQueued: false },
 });
 
 const strategyWith = (answers: string[]): { strategy: ReasoningStrategy; inputs: string[] } => {

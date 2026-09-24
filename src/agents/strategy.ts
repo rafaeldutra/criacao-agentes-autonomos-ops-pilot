@@ -11,4 +11,6 @@ export const metricsFromMessages = (startedAt: number, messages: readonly BaseMe
   llmCalls: messages.filter((message) => message.getType() === "ai").length,
   latencyMs: Math.max(0, Date.now() - startedAt),
   historyMessages: 0,
+  memoryFacts: 0,
+  learningQueued: false,
 });

@@ -1,10 +1,16 @@
 /**
- * Referência da composição de chat (implementada em src/http/server.ts → runChat).
+ * Composition reference for semantic memory + learning reflector.
  *
- * Fluxo:
- * 1. conversationId opcional ou create()
- * 2. lastMessages(conversationId, 12)
- * 3. append(user) → strategy.run(compose(history, message)) → append(assistant)
- * 4. resposta com conversationId e metrics.historyMessages = history.length
+ * Recall (006):
+ *   const q = await embed(query)
+ *   return memoriesFor(userId)
+ *     .map(m => ({ ...m, score: dot(q, m.embedding) }))
+ *     .filter(m => m.score >= 0.3)
+ *     .sort((a, b) => b.score - a.score)
+ *     .slice(0, 3)
+ *
+ * HTTP: POST /chat with optional userId → recall → inject [Relevant memories]
+ * into prompt → after 200, scheduleLearning (reflect → memories.remember async).
+ * Agent tool forget_preference: recall top-1 → forget(id) using request userId.
  */
 export {};

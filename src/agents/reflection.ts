@@ -90,7 +90,7 @@ export const withReflection = (
           return {
             answer: current.answer,
             trace,
-            metrics: { llmCalls, latencyMs: Math.max(0, Date.now() - startedAt), historyMessages: 0 },
+            metrics: { llmCalls, latencyMs: Math.max(0, Date.now() - startedAt), historyMessages: 0, memoryFacts: 0, learningQueued: false },
           };
         }
         previousFeedback = parsed.feedback;

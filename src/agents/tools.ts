@@ -2,6 +2,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { createSeededStore } from "./store.js";
 import type { AlertStatus, IncidentFilter, Severity } from "./types.js";
+import type { MemoryStore } from "../memory/memory-store.js";
 import type { OpsStore } from "../store/ops-store.js";
 
 export const alertStatusSchema = z.enum(["firing", "resolved"]).describe("Alert lifecycle status to include.");
@@ -26,6 +27,9 @@ export const providerSchema = z.enum(["github", "cloudflare"]).default("github")
   "Provider externo a consultar quando houver suspeita de incidente fora do OpsPilot; ajuda a distinguir falha local de indisponibilidade de uma dependencia.",
 );
 export const checkProviderStatusSchema = z.object({ provider: providerSchema });
+export const forgetPreferenceSchema = z.object({
+  preference: z.string().trim().min(1).describe("Description of the preference or fact to forget"),
+});
 
 const providerStatusSchema = z.object({
   status: z.object({
@@ -44,6 +48,8 @@ export type ProviderFetch = typeof fetch;
 
 type ToolOptions = {
   fetch?: ProviderFetch;
+  memories?: MemoryStore;
+  getUserId?: () => string | undefined;
 };
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -109,6 +115,26 @@ export const createTools = (store: OpsStore = createSeededStore(), options: Tool
       name: "check_provider_status",
       description: "Check whether GitHub or Cloudflare has an external outage when an incident may be caused by a dependency outside the organization.",
       schema: checkProviderStatusSchema,
+    },
+  ),
+  forgetPreference: tool(
+    async (input) => {
+      const memories = options.memories;
+      if (!memories) return "Memory store is not configured.";
+      const userId = options.getUserId?.();
+      if (!userId) return "userId is required to forget preferences.";
+
+      const hits = await memories.recall(userId, input.preference);
+      const best = hits[0];
+      if (!best) return "No matching preference found.";
+
+      memories.forget(best.id);
+      return `Forgotten: ${best.fact}`;
+    },
+    {
+      name: "forget_preference",
+      description: "Remove a previously learned user preference from semantic memory.",
+      schema: forgetPreferenceSchema,
     },
   ),
 });

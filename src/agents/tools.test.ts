@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createSeededStore } from "./store.js";
 import { createTools } from "./tools.js";
 import { SqliteOpsStore } from "../store/sqlite-ops-store.js";
+import { FakeMemoryStore } from "../memory/fake-memory-store.js";
 
 const providerResponse = (indicator = "none", description = "All Systems Operational") => new Response(
   JSON.stringify({ status: { indicator, description }, page: { unrelated: true } }),
@@ -94,4 +95,46 @@ test("check_provider_status returns readable final failures without throwing", a
   const invalidTools = createTools(createSeededStore(), { fetch: invalid.fakeFetch });
   assert.match(await invalidTools.checkProviderStatus.invoke({}), /failed after 1 attempt/);
   assert.equal(invalid.requests.length, 1);
+});
+
+test("forget_preference removes matching memory for contextual userId", async () => {
+  const unit = new Float32Array(384);
+  unit[0] = 1;
+  const memories = new FakeMemoryStore({ embed: async () => unit });
+  await memories.remember("u1", "User prefers Portuguese replies");
+
+  const tools = createTools(createSeededStore(), {
+    memories,
+    getUserId: () => "u1",
+  });
+  assert.ok(tools.forgetPreference);
+  assert.equal(tools.forgetPreference.name, "forget_preference");
+
+  const output = await tools.forgetPreference.invoke({ preference: "Portuguese language preference" });
+  assert.match(String(output), /Forgotten:/);
+  assert.deepEqual(await memories.recall("u1", "Portuguese"), []);
+});
+
+test("forget_preference reports no match, missing userId, and missing memories", async () => {
+  const unit = new Float32Array(384);
+  unit[0] = 1;
+  const memories = new FakeMemoryStore({ embed: async () => unit });
+
+  const withUser = createTools(createSeededStore(), { memories, getUserId: () => "u1" });
+  assert.equal(
+    await withUser.forgetPreference.invoke({ preference: "unknown preference xyz" }),
+    "No matching preference found.",
+  );
+
+  const noUser = createTools(createSeededStore(), { memories, getUserId: () => undefined });
+  assert.equal(
+    await noUser.forgetPreference.invoke({ preference: "anything" }),
+    "userId is required to forget preferences.",
+  );
+
+  const noMemories = createTools(createSeededStore());
+  assert.equal(
+    await noMemories.forgetPreference.invoke({ preference: "anything" }),
+    "Memory store is not configured.",
+  );
 });

@@ -5,6 +5,7 @@ import {
   isMessageRole,
   type ConversationMessage,
   type ConversationStore,
+  type ConversationSummaryRecord,
   type MessageRole,
 } from "./conversation-store.js";
 
@@ -25,6 +26,12 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
   ON messages(conversation_id, created_at);
+CREATE TABLE IF NOT EXISTS conversation_summaries (
+  conversation_id TEXT PRIMARY KEY REFERENCES conversations(id),
+  summary TEXT NOT NULL,
+  covered_count INTEGER NOT NULL CHECK (covered_count >= 0),
+  updated_at TEXT NOT NULL
+);
 `;
 
 const newId = (prefix: string): string =>
@@ -91,6 +98,78 @@ export class SqliteConversationStore implements ConversationStore {
          ORDER BY created_at ASC, rowid ASC`,
       )
       .all(conversationId, limit) as Array<Record<string, unknown>>;
+
+    return rows.map((row) => this.message(row));
+  }
+
+  getSummary(conversationId: string): ConversationSummaryRecord | undefined {
+    if (!this.exists(conversationId)) {
+      throw new DomainError(`Conversation not found: ${conversationId}`, CONVERSATION_NOT_FOUND);
+    }
+    const row = this.db
+      .prepare(
+        `SELECT conversation_id, summary, covered_count, updated_at
+         FROM conversation_summaries WHERE conversation_id = ?`,
+      )
+      .get(conversationId) as Record<string, unknown> | undefined;
+    if (!row) return undefined;
+    return {
+      conversationId: String(row.conversation_id),
+      summary: String(row.summary),
+      coveredCount: Number(row.covered_count),
+      updatedAt: String(row.updated_at),
+    };
+  }
+
+  upsertSummary(conversationId: string, summary: string, coveredCount: number): void {
+    if (!this.exists(conversationId)) {
+      throw new DomainError(`Conversation not found: ${conversationId}`, CONVERSATION_NOT_FOUND);
+    }
+    const text = summary.trim();
+    if (!text) throw new Error("summary must not be empty");
+    if (!Number.isInteger(coveredCount) || coveredCount < 0) {
+      throw new Error("coveredCount must be a non-negative integer");
+    }
+    const updatedAt = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO conversation_summaries (conversation_id, summary, covered_count, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(conversation_id) DO UPDATE SET
+           summary = excluded.summary,
+           covered_count = excluded.covered_count,
+           updated_at = excluded.updated_at`,
+      )
+      .run(conversationId, text, coveredCount, updatedAt);
+  }
+
+  messageCount(conversationId: string): number {
+    if (!this.exists(conversationId)) {
+      throw new DomainError(`Conversation not found: ${conversationId}`, CONVERSATION_NOT_FOUND);
+    }
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = ?")
+      .get(conversationId) as { n: number };
+    return Number(row.n);
+  }
+
+  messagesAscending(conversationId: string, offset: number, limit: number): ConversationMessage[] {
+    if (!this.exists(conversationId)) {
+      throw new DomainError(`Conversation not found: ${conversationId}`, CONVERSATION_NOT_FOUND);
+    }
+    if (!Number.isInteger(offset) || offset < 0) throw new Error("offset must be a non-negative integer");
+    if (!Number.isInteger(limit) || limit < 0) throw new Error("limit must be a non-negative integer");
+    if (limit === 0) return [];
+
+    const rows = this.db
+      .prepare(
+        `SELECT id, conversation_id, role, content, created_at
+         FROM messages
+         WHERE conversation_id = ?
+         ORDER BY created_at ASC, rowid ASC
+         LIMIT ? OFFSET ?`,
+      )
+      .all(conversationId, limit, offset) as Array<Record<string, unknown>>;
 
     return rows.map((row) => this.message(row));
   }

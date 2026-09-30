@@ -10,6 +10,7 @@ export const observation = (content: string): TraceEvent => ({ type: "observatio
 export const plan = (steps: PlanStep[]): TraceEvent => ({ type: "plan", steps });
 export const critique = (content: string): TraceEvent => ({ type: "critique", content });
 export const answer = (content: string): TraceEvent => ({ type: "answer", content });
+export const summarize = (content: string): TraceEvent => ({ type: "summarize", content });
 
 export const formatTrace = (events: readonly TraceEvent[]): string =>
   events

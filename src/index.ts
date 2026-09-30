@@ -1,5 +1,6 @@
 import { createAgentRegistry } from "./agents/index.js";
 import { createOpenRouterModel } from "./agents/model.js";
+import { createHistorySummarizer } from "./conversation/history-summarizer.js";
 import { embed } from "./memory/embeddings.js";
 import { createLearningReflector } from "./memory/learning-reflector.js";
 import { SqliteMemoryStore } from "./memory/sqlite-memory-store.js";
@@ -12,11 +13,13 @@ const port = Number(process.env.PORT ?? 3000);
 const store = new SqliteOpsStore();
 const conversations = new SqliteConversationStore();
 const memories = new SqliteMemoryStore({ embed });
+const model = createOpenRouterModel();
 const registry = createAgentRegistry(store, { memories, getUserId });
 const app = createApp(registry, {
   conversations,
   memories,
-  learningReflector: createLearningReflector(createOpenRouterModel()),
+  learningReflector: createLearningReflector(model),
+  historySummarizer: createHistorySummarizer(model),
 });
 
 const server = app.listen(port, () => {

@@ -1,4 +1,5 @@
 import type { BaseMessage } from "@langchain/core/messages";
+import { sumPromptTokensFromMessages } from "../context/tokens.js";
 import type { Metrics, ReasoningOptions } from "./types.js";
 
 export const maxIterations = (options?: ReasoningOptions): number => {
@@ -7,10 +8,14 @@ export const maxIterations = (options?: ReasoningOptions): number => {
   return value;
 };
 
-export const metricsFromMessages = (startedAt: number, messages: readonly BaseMessage[]): Metrics => ({
-  llmCalls: messages.filter((message) => message.getType() === "ai").length,
-  latencyMs: Math.max(0, Date.now() - startedAt),
-  historyMessages: 0,
-  memoryFacts: 0,
-  learningQueued: false,
-});
+export const metricsFromMessages = (startedAt: number, messages: readonly BaseMessage[]): Metrics => {
+  const promptTokens = sumPromptTokensFromMessages(messages);
+  return {
+    llmCalls: messages.filter((message) => message.getType() === "ai").length,
+    latencyMs: Math.max(0, Date.now() - startedAt),
+    historyMessages: 0,
+    memoryFacts: 0,
+    learningQueued: false,
+    ...(promptTokens !== undefined ? { promptTokens } : {}),
+  };
+};

@@ -1,6 +1,7 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 import { z } from "zod";
+import { addOptionalPromptTokens, promptTokensFromUsage } from "../context/tokens.js";
 import { createOpenRouterModel } from "./model.js";
 import { createTools, type AgentTools } from "./tools.js";
 import { maxIterations } from "./strategy.js";
@@ -33,6 +34,7 @@ const PEState = Annotation.Root({
   trace: Annotation<TraceEvent[]>({ reducer: (left, right) => left.concat(right), default: () => [] }),
   iterations: Annotation<number>({ reducer: (_, value) => value, default: () => 0 }),
   llmCalls: Annotation<number>({ reducer: (_, value) => value, default: () => 0 }),
+  promptTokens: Annotation<number | undefined>({ reducer: (_, value) => value, default: () => undefined }),
 });
 
 const serialize = (value: unknown): string =>
@@ -73,6 +75,10 @@ const createPlanGraph = (
       new HumanMessage(step),
     ]);
     const toolCall = response.tool_calls?.[0];
+    const stepPromptTokens = addOptionalPromptTokens(
+      state.promptTokens,
+      promptTokensFromUsage(response.usage_metadata),
+    );
     if (!toolCall) {
       const result = serialize(response.content);
       return {
@@ -81,6 +87,7 @@ const createPlanGraph = (
         trace: [observation(result)],
         iterations: state.iterations + 1,
         llmCalls: state.llmCalls + 1,
+        promptTokens: stepPromptTokens,
       };
     }
 
@@ -99,6 +106,7 @@ const createPlanGraph = (
       trace: [action(toolCall.name, toolCall.args as Record<string, unknown>), observation(serialized)],
       iterations: state.iterations + 1,
       llmCalls: state.llmCalls + 1,
+      promptTokens: stepPromptTokens,
     };
   };
 
@@ -164,6 +172,7 @@ export const createPlanAndExecuteStrategy = (
         historyMessages: 0,
         memoryFacts: 0,
         learningQueued: false,
+        ...(result.promptTokens !== undefined ? { promptTokens: result.promptTokens } : {}),
       },
     };
   },

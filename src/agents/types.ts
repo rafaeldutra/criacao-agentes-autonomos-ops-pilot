@@ -10,7 +10,15 @@ export type TraceEvent =
   | { type: "observation"; content: string }
   | { type: "plan"; steps: PlanStep[] }
   | { type: "critique"; content: string }
-  | { type: "answer"; content: string };
+  | { type: "answer"; content: string }
+  | { type: "summarize"; content: string };
+
+export type ContextBreakdown = {
+  memory: number;
+  history: number;
+  message: number;
+  summary: number;
+};
 
 export type Metrics = {
   llmCalls: number;
@@ -18,6 +26,10 @@ export type Metrics = {
   historyMessages: number;
   memoryFacts: number;
   learningQueued: boolean;
+  /** Real prompt tokens from LangChain usage when available. */
+  promptTokens?: number;
+  /** Estimated tokens by composed /chat input source (chars/4). */
+  contextBreakdown?: ContextBreakdown;
 };
 
 export type PlanStep = {

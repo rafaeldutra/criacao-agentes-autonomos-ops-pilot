@@ -10,11 +10,22 @@ export type ConversationMessage = {
   createdAt: string;
 };
 
+export type ConversationSummaryRecord = {
+  conversationId: string;
+  summary: string;
+  coveredCount: number;
+  updatedAt: string;
+};
+
 export interface ConversationStore {
   create(): string;
   append(conversationId: string, role: MessageRole, content: string): void;
   lastMessages(conversationId: string, limit: number): ConversationMessage[];
   exists(conversationId: string): boolean;
+  getSummary(conversationId: string): ConversationSummaryRecord | undefined;
+  upsertSummary(conversationId: string, summary: string, coveredCount: number): void;
+  messageCount(conversationId: string): number;
+  messagesAscending(conversationId: string, offset: number, limit: number): ConversationMessage[];
   close(): void;
 }
 

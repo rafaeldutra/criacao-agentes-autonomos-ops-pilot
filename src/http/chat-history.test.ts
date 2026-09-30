@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { HISTORY_WINDOW, formatChatHistory } from "./chat-history.js";
+import { HISTORY_WINDOW, formatChatHistory, formatHistoryOnly } from "./chat-history.js";
 import type { ConversationMessage } from "../store/conversation-store.js";
 
 const message = (
@@ -15,8 +15,8 @@ const message = (
   createdAt: new Date(2026, 0, 1, 0, 0, index).toISOString(),
 });
 
-test("HISTORY_WINDOW is 12", () => {
-  assert.equal(HISTORY_WINDOW, 12);
+test("HISTORY_WINDOW is 8", () => {
+  assert.equal(HISTORY_WINDOW, 8);
 });
 
 test("formatChatHistory orders oldest to newest and appends current message", () => {
@@ -36,7 +36,20 @@ test("formatChatHistory keeps only the last HISTORY_WINDOW prior messages", () =
   const formatted = formatChatHistory(history, "current");
   const lines = formatted.split("\n");
   assert.equal(lines.length, HISTORY_WINDOW + 1);
-  assert.equal(lines[0], "assistant: m3");
+  assert.equal(lines[0], "assistant: m7");
   assert.equal(lines.at(-2), "user: m14");
   assert.equal(lines.at(-1), "user: current");
+});
+
+test("formatHistoryOnly omits the current message", () => {
+  const history = [
+    message(1, "user", "one"),
+    message(2, "assistant", "two"),
+  ];
+  assert.equal(formatHistoryOnly(history), "user: one\nassistant: two");
+  assert.equal(formatHistoryOnly([]), "");
+});
+
+test("formatChatHistory with empty history is only the current line", () => {
+  assert.equal(formatChatHistory([], "now"), "user: now");
 });

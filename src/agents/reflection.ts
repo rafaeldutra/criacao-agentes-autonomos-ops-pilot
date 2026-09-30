@@ -1,5 +1,6 @@
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
+import { addOptionalPromptTokens } from "../context/tokens.js";
 import { createOpenRouterModel } from "./model.js";
 import { critique } from "./trace.js";
 import type {
@@ -72,6 +73,7 @@ export const withReflection = (
       let currentInput = input;
       let current = await strategy.run(currentInput, strategyOptions);
       let llmCalls = current.metrics.llmCalls;
+      let promptTokens = current.metrics.promptTokens;
       let previousFeedback: string | undefined;
 
       for (let reflection = 1; reflection <= limit; reflection += 1) {
@@ -90,13 +92,21 @@ export const withReflection = (
           return {
             answer: current.answer,
             trace,
-            metrics: { llmCalls, latencyMs: Math.max(0, Date.now() - startedAt), historyMessages: 0, memoryFacts: 0, learningQueued: false },
+            metrics: {
+              llmCalls,
+              latencyMs: Math.max(0, Date.now() - startedAt),
+              historyMessages: 0,
+              memoryFacts: 0,
+              learningQueued: false,
+              ...(promptTokens !== undefined ? { promptTokens } : {}),
+            },
           };
         }
         previousFeedback = parsed.feedback;
         currentInput = regenerationInput(input, current, parsed.feedback);
         current = await strategy.run(currentInput, strategyOptions);
         llmCalls += current.metrics.llmCalls;
+        promptTokens = addOptionalPromptTokens(promptTokens, current.metrics.promptTokens);
       }
       throw new Error("Reflection ended without a result");
     },

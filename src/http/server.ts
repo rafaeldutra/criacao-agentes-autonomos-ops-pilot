@@ -1,7 +1,14 @@
 import express, { type Express, type Request, type Response } from "express";
 import { z } from "zod";
 import { resolveStrategy, type AgentRegistry } from "../agents/index.js";
-import type { ReflectionOptions } from "../agents/types.js";
+import type { Metrics, ReflectionOptions, TraceEvent } from "../agents/types.js";
+import {
+  createFakeHistorySummarizer,
+  maybeSummarizeAfterTurn,
+  type HistorySummarizer,
+} from "../conversation/history-summarizer.js";
+import { formatSummaryBlock } from "../conversation/summary-prompt.js";
+import { buildContextBreakdown } from "../context/tokens.js";
 import {
   scheduleLearning,
   type LearningReflector,
@@ -15,7 +22,7 @@ import {
   type ConversationStore,
 } from "../store/conversation-store.js";
 import { FakeConversationStore } from "../store/fake-conversation-store.js";
-import { HISTORY_WINDOW, composeStrategyInput } from "./chat-history.js";
+import { HISTORY_WINDOW, composeStrategyInput, formatHistoryOnly } from "./chat-history.js";
 import { runWithUserId } from "./request-context.js";
 
 const CHAT_TIMEOUT_MS = 180_000;
@@ -36,18 +43,13 @@ export type ChatServerOptions = {
   conversations?: ConversationStore;
   memories?: MemoryStore;
   learningReflector?: LearningReflector;
+  historySummarizer?: HistorySummarizer;
 };
 
 type StrategyRunResult = {
   answer: string;
   trace: unknown;
-  metrics: {
-    llmCalls: number;
-    latencyMs: number;
-    historyMessages: number;
-    memoryFacts: number;
-    learningQueued: boolean;
-  };
+  metrics: Metrics;
 };
 
 const isTimeout = (error: unknown): error is Error => error instanceof Error && error.message === "CHAT_TIMEOUT";
@@ -69,12 +71,16 @@ const runWithTimeout = async <T>(task: Promise<T>, timeoutMs: number): Promise<T
   }
 };
 
-/** Composition: optional recall → history window → append → run → append → metrics. */
+const asTrace = (trace: unknown): TraceEvent[] =>
+  Array.isArray(trace) ? (trace as TraceEvent[]) : [];
+
+/** Composition: summary → recall → history window → append → run → append → maybe summarize. */
 const runChat = async (
   conversations: ConversationStore,
   memories: MemoryStore,
   strategy: { run: (input: string) => Promise<StrategyRunResult> },
   input: { message: string; conversationId?: string; userId?: string },
+  historySummarizer?: HistorySummarizer,
 ) => {
   const conversationId = input.conversationId ?? conversations.create();
   if (input.conversationId && !conversations.exists(conversationId)) {
@@ -82,21 +88,52 @@ const runChat = async (
   }
 
   const history = conversations.lastMessages(conversationId, HISTORY_WINDOW);
+  const summaryRecord = conversations.getSummary(conversationId);
+  const summaryText = formatSummaryBlock(summaryRecord?.summary ?? "");
   const facts = input.userId ? await memories.recall(input.userId, input.message) : [];
-  const composed = `${formatMemoryBlock(facts)}${composeStrategyInput(history, input.message)}`;
+  const memoryText = formatMemoryBlock(facts);
+  const historyText = formatHistoryOnly(history);
+  const messageText = `user: ${input.message}`;
+  const composed = `${summaryText}${memoryText}${composeStrategyInput(history, input.message)}`;
+  const contextBreakdown = buildContextBreakdown({
+    summary: summaryText,
+    memory: memoryText,
+    history: historyText,
+    message: messageText,
+  });
 
   conversations.append(conversationId, "user", input.message);
   const result = await strategy.run(composed);
   conversations.append(conversationId, "assistant", result.answer);
 
+  let trace = asTrace(result.trace);
+  if (historySummarizer) {
+    const summarized = await maybeSummarizeAfterTurn({
+      conversations,
+      conversationId,
+      summarizer: historySummarizer,
+      onError: (error) => {
+        console.error("[history-summarizer]", error);
+      },
+    });
+    if (summarized) {
+      trace = [...trace, summarized.event];
+    }
+  }
+
+  const { promptTokens, ...baseMetrics } = result.metrics;
+
   return {
     conversationId,
     ...result,
+    trace,
     metrics: {
-      ...result.metrics,
+      ...baseMetrics,
       historyMessages: history.length,
       memoryFacts: facts.length,
       learningQueued: Boolean(input.userId),
+      contextBreakdown,
+      ...(typeof promptTokens === "number" ? { promptTokens } : {}),
     },
   };
 };
@@ -108,6 +145,7 @@ const chatHandler = (
   conversations: ConversationStore,
   memories: MemoryStore,
   learningReflector: LearningReflector | undefined,
+  historySummarizer: HistorySummarizer | undefined,
 ) => async (request: Request, response: Response) => {
   const parsed = chatRequestSchema.safeParse(request.body);
   if (!parsed.success) {
@@ -127,11 +165,17 @@ const chatHandler = (
   try {
     const result = await runWithUserId(userId, () =>
       runWithTimeout(
-        runChat(conversations, memories, strategy, {
-          message: parsed.data.message,
-          conversationId: parsed.data.conversationId,
-          userId,
-        }),
+        runChat(
+          conversations,
+          memories,
+          strategy,
+          {
+            message: parsed.data.message,
+            conversationId: parsed.data.conversationId,
+            userId,
+          },
+          historySummarizer,
+        ),
         timeoutMs,
       ),
     );
@@ -175,9 +219,10 @@ export const createApp = (registry: AgentRegistry, options: ChatServerOptions = 
       conversations,
       memories,
       options.learningReflector,
+      options.historySummarizer,
     ),
   );
   return app;
 };
 
-export { CHAT_TIMEOUT_MS, HISTORY_WINDOW, runChat };
+export { CHAT_TIMEOUT_MS, HISTORY_WINDOW, runChat, createFakeHistorySummarizer };

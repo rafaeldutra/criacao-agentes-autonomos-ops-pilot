@@ -7,13 +7,16 @@ import {
   maybeSummarizeAfterTurn,
   type HistorySummarizer,
 } from "../conversation/history-summarizer.js";
-import { formatSummaryBlock } from "../conversation/summary-prompt.js";
+import {
+  buildContext,
+  loadSectionBudgets,
+  type SectionBudget,
+} from "../context/context-builder.js";
 import { buildContextBreakdown } from "../context/tokens.js";
 import {
   scheduleLearning,
   type LearningReflector,
 } from "../memory/learning-reflector.js";
-import { formatMemoryBlock } from "../memory/memory-prompt.js";
 import type { MemoryStore } from "../memory/memory-store.js";
 import { FakeMemoryStore } from "../memory/fake-memory-store.js";
 import {
@@ -22,7 +25,7 @@ import {
   type ConversationStore,
 } from "../store/conversation-store.js";
 import { FakeConversationStore } from "../store/fake-conversation-store.js";
-import { HISTORY_WINDOW, composeStrategyInput, formatHistoryOnly } from "./chat-history.js";
+import { HISTORY_WINDOW } from "./chat-history.js";
 import { runWithUserId } from "./request-context.js";
 
 const CHAT_TIMEOUT_MS = 180_000;
@@ -44,6 +47,8 @@ export type ChatServerOptions = {
   memories?: MemoryStore;
   learningReflector?: LearningReflector;
   historySummarizer?: HistorySummarizer;
+  /** Injected budgets for tests; defaults to loadSectionBudgets(process.env). */
+  sectionBudget?: SectionBudget;
 };
 
 type StrategyRunResult = {
@@ -74,13 +79,14 @@ const runWithTimeout = async <T>(task: Promise<T>, timeoutMs: number): Promise<T
 const asTrace = (trace: unknown): TraceEvent[] =>
   Array.isArray(trace) ? (trace as TraceEvent[]) : [];
 
-/** Composition: summary → recall → history window → append → run → append → maybe summarize. */
+/** Composition: recall → buildContext (budgets) → append → run → append → maybe summarize. */
 const runChat = async (
   conversations: ConversationStore,
   memories: MemoryStore,
   strategy: { run: (input: string) => Promise<StrategyRunResult> },
   input: { message: string; conversationId?: string; userId?: string },
   historySummarizer?: HistorySummarizer,
+  sectionBudget?: SectionBudget,
 ) => {
   const conversationId = input.conversationId ?? conversations.create();
   if (input.conversationId && !conversations.exists(conversationId)) {
@@ -89,21 +95,26 @@ const runChat = async (
 
   const history = conversations.lastMessages(conversationId, HISTORY_WINDOW);
   const summaryRecord = conversations.getSummary(conversationId);
-  const summaryText = formatSummaryBlock(summaryRecord?.summary ?? "");
   const facts = input.userId ? await memories.recall(input.userId, input.message) : [];
-  const memoryText = formatMemoryBlock(facts);
-  const historyText = formatHistoryOnly(history);
-  const messageText = `user: ${input.message}`;
-  const composed = `${summaryText}${memoryText}${composeStrategyInput(history, input.message)}`;
+  const budget = sectionBudget ?? loadSectionBudgets(process.env);
+  const built = buildContext(
+    {
+      summary: summaryRecord?.summary ?? "",
+      memories: facts,
+      history,
+      message: input.message,
+    },
+    budget,
+  );
   const contextBreakdown = buildContextBreakdown({
-    summary: summaryText,
-    memory: memoryText,
-    history: historyText,
-    message: messageText,
+    summary: built.sections.summary,
+    memory: built.sections.memory,
+    history: built.sections.history,
+    message: built.sections.message,
   });
 
   conversations.append(conversationId, "user", input.message);
-  const result = await strategy.run(composed);
+  const result = await strategy.run(built.prompt);
   conversations.append(conversationId, "assistant", result.answer);
 
   let trace = asTrace(result.trace);
@@ -129,8 +140,8 @@ const runChat = async (
     trace,
     metrics: {
       ...baseMetrics,
-      historyMessages: history.length,
-      memoryFacts: facts.length,
+      historyMessages: built.keptHistory.length,
+      memoryFacts: built.keptMemories.length,
       learningQueued: Boolean(input.userId),
       contextBreakdown,
       ...(typeof promptTokens === "number" ? { promptTokens } : {}),
@@ -146,6 +157,7 @@ const chatHandler = (
   memories: MemoryStore,
   learningReflector: LearningReflector | undefined,
   historySummarizer: HistorySummarizer | undefined,
+  sectionBudget: SectionBudget | undefined,
 ) => async (request: Request, response: Response) => {
   const parsed = chatRequestSchema.safeParse(request.body);
   if (!parsed.success) {
@@ -175,6 +187,7 @@ const chatHandler = (
             userId,
           },
           historySummarizer,
+          sectionBudget,
         ),
         timeoutMs,
       ),
@@ -220,6 +233,7 @@ export const createApp = (registry: AgentRegistry, options: ChatServerOptions = 
       memories,
       options.learningReflector,
       options.historySummarizer,
+      options.sectionBudget,
     ),
   );
   return app;

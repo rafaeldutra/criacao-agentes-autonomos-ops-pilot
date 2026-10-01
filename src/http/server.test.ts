@@ -466,3 +466,79 @@ test("does not summarize on incomplete batch and survives summarizer failure", a
     },
   );
 });
+
+test("low window budget drops oldest history from strategy prompt", async () => {
+  const conversations = new FakeConversationStore();
+  const cid = conversations.create();
+  conversations.append(cid, "user", "OLD_MESSAGE_AAAAAAAA");
+  conversations.append(cid, "assistant", "OLD_REPLY_BBBBBBBB");
+  conversations.append(cid, "user", "NEW_MESSAGE_CCCCCCCC");
+
+  let lastInput = "";
+  const stub = strategy("react", async (input) => {
+    lastInput = input;
+    return result("ok");
+  });
+
+  const onlyNewestTokens = estimateTokens("user: NEW_MESSAGE_CCCCCCCC");
+  await withServer(
+    createApp(
+      { react: stub },
+      {
+        conversations,
+        sectionBudget: { summary: 200, window: onlyNewestTokens, memories: 300 },
+      },
+    ),
+    async (server) => {
+      const response = await request(server, {
+        message: "current",
+        conversationId: cid,
+      });
+      assert.equal(response.status, 200);
+      const body = response.json as { metrics: { historyMessages: number } };
+      assert.equal(body.metrics.historyMessages, 1);
+      assert.doesNotMatch(lastInput, /OLD_MESSAGE_AAAAAAAA/);
+      assert.match(lastInput, /NEW_MESSAGE_CCCCCCCC/);
+      assert.match(lastInput, /user: current/);
+    },
+  );
+});
+
+test("low memories budget reduces memoryFacts in metrics", async () => {
+  const conversations = new FakeConversationStore();
+  const unit = new Float32Array(384);
+  unit[0] = 1;
+  const memories = new FakeMemoryStore({ embed: async () => unit });
+  await memories.remember("ops-budget", "User prefers black coffee every morning without sugar");
+  await memories.remember("ops-budget", "User likes green tea in the afternoon sometimes");
+
+  let lastInput = "";
+  const stub = strategy("react", async (input) => {
+    lastInput = input;
+    return result("ok");
+  });
+
+  await withServer(
+    createApp(
+      { react: stub },
+      {
+        conversations,
+        memories,
+        sectionBudget: { summary: 0, window: 10_000, memories: 15 },
+      },
+    ),
+    async (server) => {
+      const response = await request(server, {
+        message: "coffee prefs?",
+        userId: "ops-budget",
+      });
+      assert.equal(response.status, 200);
+      const body = response.json as { metrics: { memoryFacts: number } };
+      assert.ok(body.metrics.memoryFacts <= 2);
+      assert.ok(body.metrics.memoryFacts >= 0);
+      // With a tight budget, at most one formatted fact block typically remains
+      assert.ok(body.metrics.memoryFacts <= 1);
+      assert.match(lastInput, /user: coffee prefs\?/);
+    },
+  );
+});

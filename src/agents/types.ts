@@ -4,14 +4,24 @@ export type Severity = "low" | "medium" | "high" | "critical";
 export type ServiceTier = "tier1" | "tier2" | "tier3";
 export type IncidentFilter = "open" | "resolved" | "all";
 
+export type GraphNode = "context" | "router" | "react" | "plan-and-execute" | "reflect" | "response";
+export type StrategyRoute = Extract<GraphNode, "react" | "plan-and-execute" | "reflect">;
+
+export type RouteDecision = {
+  route: StrategyRoute;
+  reason: string;
+  source?: "llm" | "override";
+};
+
 export type TraceEvent =
-  | { type: "thought"; content: string }
-  | { type: "action"; tool: string; args: Record<string, unknown> }
-  | { type: "observation"; content: string }
-  | { type: "plan"; steps: PlanStep[] }
-  | { type: "critique"; content: string }
-  | { type: "answer"; content: string }
-  | { type: "summarize"; content: string };
+  | { type: "thought"; content: string; node?: GraphNode }
+  | { type: "action"; tool: string; args: Record<string, unknown>; node?: GraphNode }
+  | { type: "observation"; content: string; node?: GraphNode }
+  | { type: "plan"; steps: PlanStep[]; node?: GraphNode }
+  | { type: "critique"; content: string; node?: GraphNode }
+  | { type: "answer"; content: string; node?: GraphNode }
+  | { type: "summarize"; content: string; node?: GraphNode }
+  | { type: "route"; route: StrategyRoute; reason: string; node?: GraphNode };
 
 export type ContextBreakdown = {
   memory: number;

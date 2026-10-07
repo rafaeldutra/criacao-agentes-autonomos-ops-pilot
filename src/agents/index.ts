@@ -7,6 +7,8 @@ import type { MemoryStore } from "../memory/memory-store.js";
 import { SqliteOpsStore } from "../store/sqlite-ops-store.js";
 import type { OpsStore } from "../store/ops-store.js";
 import type { ReflectionOptions, ReasoningStrategy } from "./types.js";
+export { createProductionGraph, PRODUCTION_ROUTES, isStrategyRoute } from "./production-graph.js";
+export type { DecideRoute, ProductionGraphInput, ProductionGraphResult } from "./production-graph.js";
 
 export type AgentRegistry = Readonly<Record<string, ReasoningStrategy>>;
 

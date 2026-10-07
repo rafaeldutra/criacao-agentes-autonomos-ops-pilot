@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { createApp, createFakeHistorySummarizer } from "./server.js";
+import { createApp as createExpressApp, createFakeHistorySummarizer, type ChatServerOptions } from "./server.js";
 import { HISTORY_WINDOW, formatHistoryOnly } from "./chat-history.js";
 import type { Metrics, ReasoningStrategy } from "../agents/types.js";
 import { estimateTokens } from "../context/tokens.js";
@@ -14,6 +14,7 @@ import {
   createFixtureLearningReflector,
 } from "../memory/learning-reflector.js";
 import type { MemoryStore, RememberResult } from "../memory/memory-store.js";
+import type { AgentRegistry } from "../agents/index.js";
 
 const result = (answer: string, metrics: Partial<Metrics> = {}) => ({
   answer,
@@ -43,8 +44,22 @@ const request = async (server: Server, body: unknown): Promise<{ status: number;
   return { status: response.status, json: await response.json() };
 };
 
+const rawRequest = async (
+  server: Server,
+  body: string,
+): Promise<{ status: number; json: unknown; text: string }> => {
+  const address = server.address() as AddressInfo;
+  const response = await fetch(`http://127.0.0.1:${address.port}/chat`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body,
+  });
+  const text = await response.text();
+  return { status: response.status, text, json: JSON.parse(text) };
+};
+
 const withServer = async (
-  app: ReturnType<typeof createApp>,
+  app: ReturnType<typeof createExpressApp>,
   callback: (server: Server) => Promise<void>,
 ): Promise<void> => {
   const server = createServer(app);
@@ -55,6 +70,12 @@ const withServer = async (
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
   }
 };
+
+const createApp = (registry: AgentRegistry, options: ChatServerOptions = {}) =>
+  createExpressApp(registry, {
+    decideRoute: async () => ({ route: "react", reason: "test router" }),
+    ...options,
+  });
 
 test("returns a successful chat response using the react default", async () => {
   const conversations = new FakeConversationStore();
@@ -86,6 +107,79 @@ test("returns 422 for an unknown strategy", async () => {
     const response = await request(server, { message: "status", strategy: "unknown" });
     assert.equal(response.status, 422);
   });
+});
+
+test("uses strategy as graph override without calling decideRoute", async () => {
+  let routed = false;
+  let planRan = false;
+  await withServer(
+    createExpressApp(
+      {
+        react: strategy("react"),
+        "plan-and-execute": strategy("plan-and-execute", async () => {
+          planRan = true;
+          return result("planned");
+        }),
+      },
+      {
+        decideRoute: async () => {
+          routed = true;
+          return { route: "react", reason: "should not run" };
+        },
+      },
+    ),
+    async (server) => {
+      const response = await request(server, { message: "status", strategy: "plan-and-execute" });
+      assert.equal(response.status, 200);
+      assert.equal((response.json as { answer: string }).answer, "planned");
+      assert.equal(planRan, true);
+      assert.equal(routed, false);
+      const routeEvent = (response.json as { trace: Array<{ type: string; reason?: string }> }).trace.find(
+        (event) => event.type === "route",
+      );
+      assert.equal(routeEvent?.reason, "client override");
+    },
+  );
+});
+
+test("maps router failure to 502", async () => {
+  await withServer(
+    createExpressApp(
+      { react: strategy("react") },
+      {
+        decideRoute: async () => {
+          throw new Error("router down");
+        },
+      },
+    ),
+    async (server) => {
+      const response = await request(server, { message: "status" });
+      assert.equal(response.status, 502);
+      assert.equal((response.json as { code: string }).code, "ROUTER_FAILED");
+    },
+  );
+});
+
+test("returns JSON for malformed bodies and provider failures", async () => {
+  await withServer(createApp({ react: strategy("react") }), async (server) => {
+    const malformed = await rawRequest(server, "{message}");
+    assert.equal(malformed.status, 400);
+    assert.equal((malformed.json as { error: string }).error, "Invalid JSON body");
+    assert.doesNotMatch(malformed.text, /<!DOCTYPE/i);
+  });
+
+  await withServer(
+    createApp({
+      react: strategy("react", async () => {
+        throw new Error("Provider returned error");
+      }),
+    }),
+    async (server) => {
+      const response = await request(server, { message: "status" });
+      assert.equal(response.status, 502);
+      assert.equal((response.json as { code: string }).code, "PROVIDER_ERROR");
+    },
+  );
 });
 
 test("applies reflection to the selected strategy", async () => {

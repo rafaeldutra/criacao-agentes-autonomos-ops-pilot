@@ -1,18 +1,23 @@
-import express, { type Express, type Request, type Response } from "express";
+import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
-import { resolveStrategy, type AgentRegistry } from "../agents/index.js";
-import type { Metrics, ReflectionOptions, TraceEvent } from "../agents/types.js";
+import { type AgentRegistry } from "../agents/index.js";
+import {
+  createProductionGraph,
+  isStrategyRoute,
+  ROUTER_FAILED,
+  runProductionGraph,
+  type DecideRoute,
+} from "../agents/production-graph.js";
+import type { ReflectionOptions, TraceEvent } from "../agents/types.js";
 import {
   createFakeHistorySummarizer,
   maybeSummarizeAfterTurn,
   type HistorySummarizer,
 } from "../conversation/history-summarizer.js";
 import {
-  buildContext,
   loadSectionBudgets,
   type SectionBudget,
 } from "../context/context-builder.js";
-import { buildContextBreakdown } from "../context/tokens.js";
 import {
   scheduleLearning,
   type LearningReflector,
@@ -49,18 +54,26 @@ export type ChatServerOptions = {
   historySummarizer?: HistorySummarizer;
   /** Injected budgets for tests; defaults to loadSectionBudgets(process.env). */
   sectionBudget?: SectionBudget;
-};
-
-type StrategyRunResult = {
-  answer: string;
-  trace: unknown;
-  metrics: Metrics;
+  decideRoute?: DecideRoute;
 };
 
 const isTimeout = (error: unknown): error is Error => error instanceof Error && error.message === "CHAT_TIMEOUT";
 
 const isConversationNotFound = (error: unknown): error is DomainError =>
   error instanceof DomainError && error.code === CONVERSATION_NOT_FOUND;
+
+const isRouterFailed = (error: unknown): error is DomainError =>
+  error instanceof DomainError && error.code === ROUTER_FAILED;
+
+const isJsonParseError = (error: unknown): boolean =>
+  error instanceof SyntaxError &&
+  typeof error === "object" &&
+  error !== null &&
+  (error as { status?: unknown; type?: unknown }).status === 400 &&
+  (error as { type?: unknown }).type === "entity.parse.failed";
+
+const isProviderError = (error: unknown): boolean =>
+  error instanceof Error && /Provider returned error|APIError/i.test(error.message);
 
 const runWithTimeout = async <T>(task: Promise<T>, timeoutMs: number): Promise<T> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -79,12 +92,18 @@ const runWithTimeout = async <T>(task: Promise<T>, timeoutMs: number): Promise<T
 const asTrace = (trace: unknown): TraceEvent[] =>
   Array.isArray(trace) ? (trace as TraceEvent[]) : [];
 
-/** Composition: recall → buildContext (budgets) → append → run → append → maybe summarize. */
+/** Composition: recall -> append -> production graph -> append -> maybe summarize. */
 const runChat = async (
   conversations: ConversationStore,
   memories: MemoryStore,
-  strategy: { run: (input: string) => Promise<StrategyRunResult> },
+  registry: AgentRegistry,
   input: { message: string; conversationId?: string; userId?: string },
+  graphOptions: {
+    override?: string;
+    reflect: boolean;
+    reflectionOptions: ReflectionOptions;
+    decideRoute?: DecideRoute;
+  },
   historySummarizer?: HistorySummarizer,
   sectionBudget?: SectionBudget,
 ) => {
@@ -97,24 +116,25 @@ const runChat = async (
   const summaryRecord = conversations.getSummary(conversationId);
   const facts = input.userId ? await memories.recall(input.userId, input.message) : [];
   const budget = sectionBudget ?? loadSectionBudgets(process.env);
-  const built = buildContext(
-    {
-      summary: summaryRecord?.summary ?? "",
-      memories: facts,
-      history,
-      message: input.message,
-    },
-    budget,
-  );
-  const contextBreakdown = buildContextBreakdown({
-    summary: built.sections.summary,
-    memory: built.sections.memory,
-    history: built.sections.history,
-    message: built.sections.message,
-  });
 
   conversations.append(conversationId, "user", input.message);
-  const result = await strategy.run(built.prompt);
+  const graph = createProductionGraph({
+    strategies: {
+      react: registry.react,
+      "plan-and-execute": registry["plan-and-execute"] ?? registry.react,
+    },
+    decideRoute: graphOptions.decideRoute,
+    reflectionOptions: graphOptions.reflectionOptions,
+  });
+  const result = await runProductionGraph(graph, {
+    message: input.message,
+    history,
+    summary: summaryRecord?.summary ?? "",
+    memories: facts,
+    budget,
+    override: graphOptions.override && isStrategyRoute(graphOptions.override) ? graphOptions.override : undefined,
+    reflect: graphOptions.reflect,
+  });
   conversations.append(conversationId, "assistant", result.answer);
 
   let trace = asTrace(result.trace);
@@ -128,7 +148,7 @@ const runChat = async (
       },
     });
     if (summarized) {
-      trace = [...trace, summarized.event];
+      trace = [...trace, { ...summarized.event, node: "response" as const }];
     }
   }
 
@@ -140,10 +160,9 @@ const runChat = async (
     trace,
     metrics: {
       ...baseMetrics,
-      historyMessages: built.keptHistory.length,
-      memoryFacts: built.keptMemories.length,
+      historyMessages: result.metrics.historyMessages,
+      memoryFacts: result.metrics.memoryFacts,
       learningQueued: Boolean(input.userId),
-      contextBreakdown,
       ...(typeof promptTokens === "number" ? { promptTokens } : {}),
     },
   };
@@ -158,6 +177,7 @@ const chatHandler = (
   learningReflector: LearningReflector | undefined,
   historySummarizer: HistorySummarizer | undefined,
   sectionBudget: SectionBudget | undefined,
+  decideRoute: DecideRoute | undefined,
 ) => async (request: Request, response: Response) => {
   const parsed = chatRequestSchema.safeParse(request.body);
   if (!parsed.success) {
@@ -165,10 +185,12 @@ const chatHandler = (
     return;
   }
 
-  const strategyName = parsed.data.strategy ?? "react";
-  const strategy = resolveStrategy(registry, strategyName, parsed.data.reflect, reflectionOptions);
-  if (!strategy) {
-    response.status(422).json({ error: `Unknown strategy: ${strategyName}` });
+  if (!registry.react) {
+    response.status(422).json({ error: "Unknown strategy: react" });
+    return;
+  }
+  if (parsed.data.strategy && !isStrategyRoute(parsed.data.strategy)) {
+    response.status(422).json({ error: `Unknown strategy: ${parsed.data.strategy}` });
     return;
   }
 
@@ -180,11 +202,17 @@ const chatHandler = (
         runChat(
           conversations,
           memories,
-          strategy,
+          registry,
           {
             message: parsed.data.message,
             conversationId: parsed.data.conversationId,
             userId,
+          },
+          {
+            override: parsed.data.strategy,
+            reflect: parsed.data.reflect,
+            reflectionOptions,
+            decideRoute,
           },
           historySummarizer,
           sectionBudget,
@@ -211,8 +239,31 @@ const chatHandler = (
       response.status(404).json({ error: error.message, code: error.code });
       return;
     }
+    if (isRouterFailed(error)) {
+      response.status(502).json({ error: error.message, code: error.code });
+      return;
+    }
     throw error;
   }
+};
+
+const errorHandler = (error: unknown, _request: Request, response: Response, _next: NextFunction) => {
+  if (response.headersSent) return;
+  if (isJsonParseError(error)) {
+    response.status(400).json({ error: "Invalid JSON body" });
+    return;
+  }
+  if (isProviderError(error)) {
+    response.status(502).json({
+      error: error instanceof Error ? error.message : "Provider error",
+      code: "PROVIDER_ERROR",
+    });
+    return;
+  }
+  console.error("[http]", error);
+  response.status(500).json({
+    error: error instanceof Error ? error.message : "Internal server error",
+  });
 };
 
 export const createApp = (registry: AgentRegistry, options: ChatServerOptions = {}): Express => {
@@ -234,8 +285,10 @@ export const createApp = (registry: AgentRegistry, options: ChatServerOptions = 
       options.learningReflector,
       options.historySummarizer,
       options.sectionBudget,
+      options.decideRoute,
     ),
   );
+  app.use(errorHandler);
   return app;
 };
 

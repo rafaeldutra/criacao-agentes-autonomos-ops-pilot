@@ -14,9 +14,39 @@ const planSchema = z.object({
 
 const replannerSchema = z.object({
   decision: z.enum(["adjust", "follow", "end"]),
-  steps: z.array(z.string().min(1)).max(8).optional(),
+  steps: z.array(z.string().min(1)).max(8),
   reason: z.string().min(1),
 });
+
+const planJsonSchema = {
+  type: "object",
+  properties: {
+    steps: {
+      type: "array",
+      items: { type: "string" },
+      maxItems: 8,
+      description: "passos curtos, ordenados e executaveis com as ferramentas disponiveis",
+    },
+  },
+  required: ["steps"],
+  additionalProperties: false,
+} as const;
+
+const replannerJsonSchema = {
+  type: "object",
+  properties: {
+    decision: { type: "string", enum: ["adjust", "follow", "end"] },
+    steps: {
+      type: "array",
+      items: { type: "string" },
+      maxItems: 8,
+      description: "lista restante; use lista vazia quando nao ajustar",
+    },
+    reason: { type: "string" },
+  },
+  required: ["decision", "steps", "reason"],
+  additionalProperties: false,
+} as const;
 
 const PLANNER_PROMPT =
   "Você é o planner do OpsPilot. Crie passos curtos, ordenados e executáveis usando apenas as tools disponíveis. " +
@@ -50,10 +80,10 @@ const createPlanGraph = (
   useReplanner: boolean,
 ) => {
   const planner = async (state: typeof PEState.State) => {
-    const result = await model.withStructuredOutput(planSchema).invoke([
+    const result = planSchema.parse(await model.withStructuredOutput(planJsonSchema).invoke([
       new SystemMessage(PLANNER_PROMPT),
       new HumanMessage(state.input),
-    ]);
+    ]));
     const steps = result.steps.slice(0, 8);
     return {
       plan: steps,
@@ -119,11 +149,11 @@ const createPlanGraph = (
       };
     }
 
-    const result = await model.withStructuredOutput(replannerSchema).invoke([
+    const result = replannerSchema.parse(await model.withStructuredOutput(replannerJsonSchema).invoke([
       new SystemMessage(REPLANNER_PROMPT),
       new HumanMessage(JSON.stringify({ remaining: state.plan, done: state.done })),
-    ]);
-    const nextPlan = result.decision === "adjust" ? (result.steps ?? state.plan).slice(0, 8 - state.iterations) : state.plan;
+    ]));
+    const nextPlan = result.decision === "adjust" ? result.steps.slice(0, 8 - state.iterations) : state.plan;
     return {
       plan: nextPlan,
       decision: result.decision,

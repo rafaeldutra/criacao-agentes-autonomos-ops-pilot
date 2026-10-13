@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createProductionGraph, RouterError, runProductionGraph } from "./production-graph.js";
+import { createDefaultDecideRoute, createProductionGraph, RouterError, runProductionGraph } from "./production-graph.js";
+import { createResilientModel, ModelUnavailableError, type ResilientModel } from "./model.js";
+import { createScriptedModel, statusError, type ScriptedModelOptions } from "./test-models.js";
 import type { Metrics, ReasoningStrategy } from "./types.js";
 
 const metrics = (overrides: Partial<Metrics> = {}): Metrics => ({
@@ -86,6 +88,146 @@ test("override skips decideRoute and runs plan-and-execute", async () => {
     reason: "client override",
     node: "router",
   });
+});
+
+const budget = { summary: 200, window: 1200, memories: 300 };
+
+const modelStrategy = (name: string, model: ResilientModel): ReasoningStrategy => ({
+  name,
+  async run(input) {
+    const message = await model.invoke(input);
+    const content = String(message.content);
+    return { answer: content, trace: [{ type: "answer", content }], metrics: metrics() };
+  },
+});
+
+const resilientModel = (primaryOptions: ScriptedModelOptions = {}) =>
+  createResilientModel({
+    primary: createScriptedModel({ reply: "primary answer", ...primaryOptions }).model,
+    fallback: createScriptedModel({ reply: "fallback answer" }).model,
+    primaryModel: "primary/model",
+    fallbackModel: "fallback/model",
+    retry: { stopAfterAttempt: 1 },
+  });
+
+test("reports the primary model in metrics.modelUsed without fallback events", async () => {
+  const model = resilientModel();
+  const graph = createProductionGraph({
+    strategies: { react: modelStrategy("react", model), "plan-and-execute": modelStrategy("plan-and-execute", model) },
+    decideRoute: async () => ({ route: "react", reason: "best fit" }),
+  });
+
+  const result = await runProductionGraph(graph, { message: "status", history: [], summary: "", memories: [], budget });
+
+  assert.equal(result.answer, "primary answer");
+  assert.equal(result.metrics.modelUsed, "primary/model");
+  assert.equal(result.trace.some((event) => event.type === "fallback"), false);
+});
+
+test("strategy-node fallback adds a stamped fallback event and next turn uses the primary again", async () => {
+  let primaryDown = true;
+  const healthy = createScriptedModel({ reply: "primary answer" }).model;
+  const model = createResilientModel({
+    primary: {
+      ...healthy,
+      invoke: async (value) => {
+        if (primaryDown) throw statusError(503, "upstream unavailable");
+        return healthy.invoke(value);
+      },
+    },
+    fallback: createScriptedModel({ reply: "fallback answer" }).model,
+    primaryModel: "primary/model",
+    fallbackModel: "fallback/model",
+    retry: { stopAfterAttempt: 1 },
+  });
+  const graph = createProductionGraph({
+    strategies: { react: modelStrategy("react", model), "plan-and-execute": modelStrategy("plan-and-execute", model) },
+    decideRoute: async () => ({ route: "react", reason: "best fit" }),
+  });
+
+  const degraded = await runProductionGraph(graph, { message: "status", history: [], summary: "", memories: [], budget });
+
+  assert.equal(degraded.answer, "fallback answer");
+  assert.equal(degraded.metrics.modelUsed, "fallback/model");
+  const reactEvents = degraded.trace.filter((event) => event.node === "react");
+  assert.deepEqual(reactEvents[0], {
+    type: "fallback",
+    fromModel: "primary/model",
+    toModel: "fallback/model",
+    reason: "503 upstream unavailable",
+    node: "react",
+  });
+  assert.equal(reactEvents[1]?.type, "answer");
+
+  primaryDown = false;
+  const recovered = await runProductionGraph(graph, { message: "status", history: [], summary: "", memories: [], budget });
+
+  assert.equal(recovered.answer, "primary answer");
+  assert.equal(recovered.metrics.modelUsed, "primary/model");
+  assert.equal(recovered.trace.some((event) => event.type === "fallback"), false);
+});
+
+test("router-node fallback is stamped with node router", async () => {
+  const model = createResilientModel({
+    primary: createScriptedModel({ failures: Infinity }).model,
+    fallback: createScriptedModel({ structured: { route: "react", reason: "fallback router" } }).model,
+    primaryModel: "primary/model",
+    fallbackModel: "fallback/model",
+    retry: { stopAfterAttempt: 1 },
+  });
+  const graph = createProductionGraph({
+    strategies: { react: stub("react", []), "plan-and-execute": stub("plan-and-execute", []) },
+    decideRoute: createDefaultDecideRoute(model),
+  });
+
+  const result = await runProductionGraph(graph, { message: "status", history: [], summary: "", memories: [], budget });
+
+  assert.equal(result.route, "react");
+  const fallbackEvent = result.trace.find((event) => event.type === "fallback");
+  assert.equal(fallbackEvent?.node, "router");
+  const types = result.trace.filter((event) => event.node === "router").map((event) => event.type);
+  assert.deepEqual(types, ["fallback", "route"]);
+});
+
+test("omits metrics.modelUsed when no model call happens", async () => {
+  const graph = createProductionGraph({
+    strategies: { react: stub("react", []), "plan-and-execute": stub("plan-and-execute", []) },
+    decideRoute: async () => ({ route: "react", reason: "best fit" }),
+  });
+
+  const result = await runProductionGraph(graph, { message: "status", history: [], summary: "", memories: [], budget });
+
+  assert.equal("modelUsed" in result.metrics, false);
+});
+
+test("ModelUnavailableError passes through router and strategy nodes unchanged", async () => {
+  const routerGraph = createProductionGraph({
+    strategies: { react: stub("react", []), "plan-and-execute": stub("plan-and-execute", []) },
+    decideRoute: async () => {
+      throw new ModelUnavailableError();
+    },
+  });
+  await assert.rejects(
+    () => runProductionGraph(routerGraph, { message: "status", history: [], summary: "", memories: [], budget }),
+    (error) => error instanceof ModelUnavailableError && !(error instanceof RouterError),
+  );
+
+  const strategyGraph = createProductionGraph({
+    strategies: {
+      react: {
+        name: "react",
+        run: async () => {
+          throw new ModelUnavailableError();
+        },
+      },
+      "plan-and-execute": stub("plan-and-execute", []),
+    },
+    decideRoute: async () => ({ route: "react", reason: "best fit" }),
+  });
+  await assert.rejects(
+    () => runProductionGraph(strategyGraph, { message: "status", history: [], summary: "", memories: [], budget }),
+    (error) => error instanceof ModelUnavailableError,
+  );
 });
 
 test("router failures become ROUTER_FAILED and skip strategies", async () => {

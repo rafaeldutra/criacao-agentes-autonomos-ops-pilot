@@ -19,7 +19,12 @@ export const createReactStrategy = (
   async run(input: ReasoningInput, options?: ReasoningOptions): Promise<ReasoningResult> {
     const startedAt = Date.now();
     const limit = maxIterations(options);
-    const agent = createReactAgent({ llm: model, tools: Object.values(tools), name: "ops-pilot-react" });
+    // Dynamic llm: a static one must be a ChatModel, which the retry/fallback chain is not.
+    const agent = createReactAgent({
+      llm: () => model.bindTools(Object.values(tools)),
+      tools: Object.values(tools),
+      name: "ops-pilot-react",
+    });
     const state = await agent.invoke(
       { messages: [new HumanMessage(input)] },
       { recursionLimit: Math.max(2, limit * 2 + 1) },

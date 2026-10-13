@@ -21,7 +21,8 @@ export type TraceEvent =
   | { type: "critique"; content: string; node?: GraphNode }
   | { type: "answer"; content: string; node?: GraphNode }
   | { type: "summarize"; content: string; node?: GraphNode }
-  | { type: "route"; route: StrategyRoute; reason: string; node?: GraphNode };
+  | { type: "route"; route: StrategyRoute; reason: string; node?: GraphNode }
+  | { type: "fallback"; fromModel: string; toModel: string; reason: string; node?: GraphNode };
 
 export type ContextBreakdown = {
   memory: number;
@@ -40,6 +41,8 @@ export type Metrics = {
   promptTokens?: number;
   /** Estimated tokens by composed /chat input source (chars/4). */
   contextBreakdown?: ContextBreakdown;
+  /** Configured id of the model that completed the last LLM call of the turn. */
+  modelUsed?: string;
 };
 
 export type PlanStep = {

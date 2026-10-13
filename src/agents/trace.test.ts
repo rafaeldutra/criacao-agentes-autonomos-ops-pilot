@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { action, answer, formatTrace, observation, plan, route, thought, withNode } from "./trace.js";
+import { action, answer, fallback, formatTrace, observation, plan, route, thought, withNode } from "./trace.js";
 
 test("formats typed trace events deterministically", () => {
   const output = formatTrace([
@@ -27,4 +27,18 @@ test("adds route events and node labels without mutating originals", () => {
   assert.match(output, /\[thought\] ctx/);
   assert.match(output, /\[thought@context\] ctx/);
   assert.match(output, /\[route@router\] react client override/);
+});
+
+test("builds and formats fallback events", () => {
+  const event = fallback("primary/model", "backup/model", "503 upstream down");
+  assert.deepEqual(event, {
+    type: "fallback",
+    fromModel: "primary/model",
+    toModel: "backup/model",
+    reason: "503 upstream down",
+  });
+
+  const output = formatTrace([event, ...withNode([event], "react")]);
+  assert.match(output, /^\[fallback\] primary\/model -> backup\/model \(503 upstream down\)$/m);
+  assert.match(output, /^\[fallback@react\] primary\/model -> backup\/model \(503 upstream down\)$/m);
 });

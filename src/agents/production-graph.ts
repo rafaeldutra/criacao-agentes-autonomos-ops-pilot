@@ -6,10 +6,12 @@ import { addOptionalPromptTokens, buildContextBreakdown, type ContextBreakdown }
 import type { RecalledMemory } from "../memory/memory-store.js";
 import { DomainError } from "../store/ops-store.js";
 import type { ConversationMessage } from "../store/conversation-store.js";
-import { createOpenRouterModel } from "./model.js";
+import { createOpenRouterModel, ModelUnavailableError } from "./model.js";
+import { drainFallbacks, runWithModelUsage } from "./model-usage.js";
 import { withReflection } from "./reflection.js";
-import { answer as answerEvent, route as routeEvent, thought, withNode } from "./trace.js";
+import { answer as answerEvent, fallback as fallbackEvent, route as routeEvent, thought, withNode } from "./trace.js";
 import type {
+  GraphNode,
   Metrics,
   ReasoningResult,
   ReasoningStrategy,
@@ -118,7 +120,14 @@ const assertDecision = (decision: RouteDecision | undefined): RouteDecision => {
   return decision;
 };
 
-const hasAnswer = (trace: readonly TraceEvent[]): boolean => trace.some((event) => event.type === "answer");
+/** Model fallbacks that happened while the node ran, stamped with that node. */
+const fallbackEvents = (node: GraphNode): TraceEvent[] =>
+  withNode(
+    drainFallbacks().map((record) => fallbackEvent(record.fromModel, record.toModel, record.reason)),
+    node,
+  );
+
+const hasAnswer =(trace: readonly TraceEvent[]): boolean => trace.some((event) => event.type === "answer");
 
 export const createProductionGraph = (options: ProductionGraphOptions) => {
   const decideRoute = options.decideRoute ?? createDefaultDecideRoute(options.model);
@@ -156,11 +165,11 @@ export const createProductionGraph = (options: ProductionGraphOptions) => {
       const parsed = assertDecision(decision);
       return {
         decision: parsed,
-        trace: [routeEvent(parsed.route, parsed.reason)],
+        trace: [...fallbackEvents("router"), routeEvent(parsed.route, parsed.reason)],
         llmCalls: parsed.source === "llm" ? 1 : 0,
       };
     } catch (error) {
-      if (error instanceof RouterError) throw error;
+      if (error instanceof RouterError || error instanceof ModelUnavailableError) throw error;
       throw new RouterError();
     }
   };
@@ -173,7 +182,7 @@ export const createProductionGraph = (options: ProductionGraphOptions) => {
     const result = await strategy.run(state.prompt);
     return {
       answer: result.answer,
-      trace: withNode(result.trace, route),
+      trace: [...fallbackEvents(route), ...withNode(result.trace, route)],
       llmCalls: result.metrics.llmCalls,
       promptTokens: result.metrics.promptTokens,
     };
@@ -216,7 +225,9 @@ export const runProductionGraph = async (
   input: ProductionGraphInput,
 ): Promise<ProductionGraphResult> => {
   const { reflect, ...rest } = input;
-  const result = await graph.invoke({ ...rest, reflectRequested: reflect ?? false, startedAt: Date.now() });
+  const { result, modelUsed } = await runWithModelUsage(() =>
+    graph.invoke({ ...rest, reflectRequested: reflect ?? false, startedAt: Date.now() }),
+  );
   const decision = assertDecision(result.decision);
   return {
     answer: result.answer,
@@ -233,6 +244,7 @@ export const runProductionGraph = async (
       learningQueued: false,
       ...(result.contextBreakdown ? { contextBreakdown: result.contextBreakdown } : {}),
       ...(result.promptTokens !== undefined ? { promptTokens: result.promptTokens } : {}),
+      ...(modelUsed !== undefined ? { modelUsed } : {}),
     },
   };
 };

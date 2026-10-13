@@ -8,6 +8,7 @@ import {
   runProductionGraph,
   type DecideRoute,
 } from "../agents/production-graph.js";
+import { ModelUnavailableError } from "../agents/model.js";
 import type { ReflectionOptions, TraceEvent } from "../agents/types.js";
 import {
   createFakeHistorySummarizer,
@@ -241,6 +242,10 @@ const chatHandler = (
     }
     if (isRouterFailed(error)) {
       response.status(502).json({ error: error.message, code: error.code });
+      return;
+    }
+    if (error instanceof ModelUnavailableError) {
+      response.status(503).json({ error: error.message, code: error.code });
       return;
     }
     throw error;

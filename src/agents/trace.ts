@@ -18,7 +18,14 @@ export const route = (selectedRoute: StrategyRoute, reason: string, node: GraphN
   node,
 });
 
-export const withNode = (events: readonly TraceEvent[], node: GraphNode): TraceEvent[] =>
+export const fallback = (fromModel: string, toModel: string, reason: string): TraceEvent => ({
+  type: "fallback",
+  fromModel,
+  toModel,
+  reason,
+});
+
+export const withNode =(events: readonly TraceEvent[], node: GraphNode): TraceEvent[] =>
   events.map((event) => ({ ...event, node: event.node ?? node }));
 
 export const formatTrace = (events: readonly TraceEvent[]): string =>
@@ -27,6 +34,9 @@ export const formatTrace = (events: readonly TraceEvent[]): string =>
       const label = event.node ? `${event.type}@${event.node}` : event.type;
       if (event.type === "route") {
         return `[${label}] ${event.route} ${event.reason}`;
+      }
+      if (event.type === "fallback") {
+        return `[${label}] ${event.fromModel} -> ${event.toModel} (${event.reason})`;
       }
       if (event.type === "action") {
         return `[${label}] ${event.tool} ${JSON.stringify(event.args)}`;

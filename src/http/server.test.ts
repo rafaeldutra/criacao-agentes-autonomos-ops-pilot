@@ -15,6 +15,8 @@ import {
 } from "../memory/learning-reflector.js";
 import type { MemoryStore, RememberResult } from "../memory/memory-store.js";
 import type { AgentRegistry } from "../agents/index.js";
+import { ModelUnavailableError } from "../agents/model.js";
+import { recordModelUsed } from "../agents/model-usage.js";
 
 const result = (answer: string, metrics: Partial<Metrics> = {}) => ({
   answer,
@@ -89,6 +91,18 @@ test("returns a successful chat response using the react default", async () => {
   });
 });
 
+test("exposes metrics.modelUsed recorded during the turn", async () => {
+  const stub = strategy("react", async () => {
+    recordModelUsed("primary/model");
+    return result("ok");
+  });
+  await withServer(createApp({ react: stub }), async (server) => {
+    const response = await request(server, { message: "status" });
+    assert.equal(response.status, 200);
+    assert.equal((response.json as { metrics: { modelUsed?: string } }).metrics.modelUsed, "primary/model");
+  });
+});
+
 test("returns Zod issues for an invalid body", async () => {
   await withServer(createApp({ react: strategy("react") }), async (server) => {
     const response = await request(server, { message: "" });
@@ -158,6 +172,51 @@ test("maps router failure to 502", async () => {
       assert.equal((response.json as { code: string }).code, "ROUTER_FAILED");
     },
   );
+});
+
+test("maps total model failure to 503 without leaking provider details", async () => {
+  const conversations = new FakeConversationStore();
+  const failing = strategy("react", async () => {
+    throw new ModelUnavailableError({ cause: new Error("secret provider detail") });
+  });
+  const cid = conversations.create();
+  await withServer(createApp({ react: failing }, { conversations }), async (server) => {
+    const response = await rawRequest(server, JSON.stringify({ message: "status", conversationId: cid }));
+    assert.equal(response.status, 503);
+    assert.deepEqual(response.json, {
+      error: "Language model service unavailable",
+      code: "MODEL_SERVICE_UNAVAILABLE",
+    });
+    assert.doesNotMatch(response.text, /secret provider detail|stack/);
+    assert.deepEqual(conversations.lastMessages(cid, HISTORY_WINDOW).map((message) => message.role), ["user"]);
+  });
+
+  await withServer(
+    createExpressApp(
+      { react: strategy("react") },
+      {
+        decideRoute: async () => {
+          throw new ModelUnavailableError();
+        },
+      },
+    ),
+    async (server) => {
+      const response = await request(server, { message: "status" });
+      assert.equal(response.status, 503);
+      assert.equal((response.json as { code: string }).code, "MODEL_SERVICE_UNAVAILABLE");
+    },
+  );
+});
+
+test("timeout still wins over a later model failure", async () => {
+  const slowFailure = strategy("react", async () => {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    throw new ModelUnavailableError();
+  });
+  await withServer(createApp({ react: slowFailure }, { timeoutMs: 5 }), async (server) => {
+    const response = await request(server, { message: "status" });
+    assert.equal(response.status, 504);
+  });
 });
 
 test("returns JSON for malformed bodies and provider failures", async () => {

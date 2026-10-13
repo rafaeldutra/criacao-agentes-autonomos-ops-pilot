@@ -8,10 +8,12 @@ import { createApp } from "./http/server.js";
 import { getUserId } from "./http/request-context.js";
 import { SqliteConversationStore } from "./store/sqlite-conversation-store.js";
 import { SqliteOpsStore } from "./store/sqlite-ops-store.js";
+import { SqliteRequestStore } from "./store/sqlite-request-store.js";
 
 const port = Number(process.env.PORT ?? 3000);
 const store = new SqliteOpsStore();
 const conversations = new SqliteConversationStore();
+const requests = new SqliteRequestStore();
 const memories = new SqliteMemoryStore({ embed });
 const model = createOpenRouterModel();
 const registry = createAgentRegistry(store, { memories, getUserId });
@@ -20,6 +22,7 @@ const app = createApp(registry, {
   memories,
   learningReflector: createLearningReflector(model),
   historySummarizer: createHistorySummarizer(model),
+  requests,
 });
 
 const server = app.listen(port, () => {
@@ -29,6 +32,7 @@ const server = app.listen(port, () => {
 const shutdown = () => {
   server.close(() => {
     memories.close();
+    requests.close();
     conversations.close();
     store.close();
   });

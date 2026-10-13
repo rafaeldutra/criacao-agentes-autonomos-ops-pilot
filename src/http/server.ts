@@ -31,8 +31,23 @@ import {
   type ConversationStore,
 } from "../store/conversation-store.js";
 import { FakeConversationStore } from "../store/fake-conversation-store.js";
+import { FakeRequestStore } from "../store/fake-request-store.js";
+import type { RequestStore } from "../store/request-store.js";
+import { createLogger, errorMeta, type Logger } from "../obs/logger.js";
+import { loadModelPrices, type ModelPrices } from "../obs/stats.js";
 import { HISTORY_WINDOW } from "./chat-history.js";
 import { runWithUserId } from "./request-context.js";
+import {
+  chatAuditMiddleware,
+  getChatOutcome,
+  getRequestHandler,
+  getRequestId,
+  getStatsHandler,
+  requestIdMiddleware,
+  setChatOutcome,
+  withRequestId,
+  type ChatOutcome,
+} from "./request-trace.js";
 
 const CHAT_TIMEOUT_MS = 180_000;
 
@@ -56,6 +71,14 @@ export type ChatServerOptions = {
   /** Injected budgets for tests; defaults to loadSectionBudgets(process.env). */
   sectionBudget?: SectionBudget;
   decideRoute?: DecideRoute;
+  /** Persisted /chat records and traces; defaults to an in-memory fake. */
+  requests?: RequestStore;
+  /** Structured JSON logger; defaults to stdout/stderr. */
+  logger?: Logger;
+  /** USD per 1M prompt tokens for /stats; defaults to loadModelPrices(process.env). */
+  modelPrices?: ModelPrices;
+  /** Clock for /stats windows; injected by tests. */
+  now?: () => Date;
 };
 
 const isTimeout = (error: unknown): error is Error => error instanceof Error && error.message === "CHAT_TIMEOUT";
@@ -107,6 +130,7 @@ const runChat = async (
   },
   historySummarizer?: HistorySummarizer,
   sectionBudget?: SectionBudget,
+  log: { logger: Logger; requestId?: string } = { logger: createLogger() },
 ) => {
   const conversationId = input.conversationId ?? conversations.create();
   if (input.conversationId && !conversations.exists(conversationId)) {
@@ -145,7 +169,11 @@ const runChat = async (
       conversationId,
       summarizer: historySummarizer,
       onError: (error) => {
-        console.error("[history-summarizer]", error);
+        log.logger.error("history_summary.failed", {
+          requestId: log.requestId,
+          conversationId,
+          ...errorMeta(error),
+        });
       },
     });
     if (summarized) {
@@ -179,19 +207,31 @@ const chatHandler = (
   historySummarizer: HistorySummarizer | undefined,
   sectionBudget: SectionBudget | undefined,
   decideRoute: DecideRoute | undefined,
+  logger: Logger,
 ) => async (request: Request, response: Response) => {
+  const requestId = getRequestId(response);
+  const reply = (status: number, body: object, outcome: ChatOutcome = {}) => {
+    setChatOutcome(response, outcome);
+    response.status(status).json(withRequestId(requestId, body));
+  };
+
   const parsed = chatRequestSchema.safeParse(request.body);
   if (!parsed.success) {
-    response.status(400).json({ issues: parsed.error.issues });
+    reply(400, { issues: parsed.error.issues }, { errorCode: "VALIDATION_ERROR" });
     return;
   }
+  setChatOutcome(response, {
+    conversationId: parsed.data.conversationId,
+    userId: parsed.data.userId,
+    reflect: parsed.data.reflect,
+  });
 
   if (!registry.react) {
-    response.status(422).json({ error: "Unknown strategy: react" });
+    reply(422, { error: "Unknown strategy: react" }, { errorCode: "UNKNOWN_STRATEGY" });
     return;
   }
   if (parsed.data.strategy && !isStrategyRoute(parsed.data.strategy)) {
-    response.status(422).json({ error: `Unknown strategy: ${parsed.data.strategy}` });
+    reply(422, { error: `Unknown strategy: ${parsed.data.strategy}` }, { errorCode: "UNKNOWN_STRATEGY" });
     return;
   }
 
@@ -217,11 +257,17 @@ const chatHandler = (
           },
           historySummarizer,
           sectionBudget,
+          { logger, requestId },
         ),
         timeoutMs,
       ),
     );
-    response.status(200).json(result);
+    reply(200, result, {
+      conversationId: result.conversationId,
+      route: result.route,
+      metrics: result.metrics,
+      trace: result.trace,
+    });
 
     if (userId && learningReflector) {
       scheduleLearning({
@@ -233,42 +279,49 @@ const chatHandler = (
     }
   } catch (error) {
     if (isTimeout(error)) {
-      response.status(504).json({ error: "Chat execution timed out" });
+      reply(504, { error: "Chat execution timed out" }, { errorCode: "CHAT_TIMEOUT" });
       return;
     }
     if (isConversationNotFound(error)) {
-      response.status(404).json({ error: error.message, code: error.code });
+      reply(404, { error: error.message, code: error.code }, { errorCode: error.code });
       return;
     }
     if (isRouterFailed(error)) {
-      response.status(502).json({ error: error.message, code: error.code });
+      reply(502, { error: error.message, code: error.code }, { errorCode: error.code });
       return;
     }
     if (error instanceof ModelUnavailableError) {
-      response.status(503).json({ error: error.message, code: error.code });
+      reply(503, { error: error.message, code: error.code }, { errorCode: error.code });
       return;
     }
     throw error;
   }
 };
 
-const errorHandler = (error: unknown, _request: Request, response: Response, _next: NextFunction) => {
+/** Global handler; only /chat bodies carry requestId (other routes keep it in the header). */
+const errorHandler = (logger: Logger) => (error: unknown, _request: Request, response: Response, _next: NextFunction) => {
   if (response.headersSent) return;
+  const requestId = getRequestId(response);
+  const isChat = getChatOutcome(response) !== undefined;
+  const reply = (status: number, body: object, errorCode: string) => {
+    setChatOutcome(response, { errorCode });
+    response.status(status).json(isChat ? withRequestId(requestId, body) : body);
+  };
+
   if (isJsonParseError(error)) {
-    response.status(400).json({ error: "Invalid JSON body" });
+    reply(400, { error: "Invalid JSON body" }, "INVALID_JSON");
     return;
   }
   if (isProviderError(error)) {
-    response.status(502).json({
-      error: error instanceof Error ? error.message : "Provider error",
-      code: "PROVIDER_ERROR",
-    });
+    reply(
+      502,
+      { error: error instanceof Error ? error.message : "Provider error", code: "PROVIDER_ERROR" },
+      "PROVIDER_ERROR",
+    );
     return;
   }
-  console.error("[http]", error);
-  response.status(500).json({
-    error: error instanceof Error ? error.message : "Internal server error",
-  });
+  logger.error("http.error", { requestId, ...errorMeta(error) });
+  reply(500, { error: error instanceof Error ? error.message : "Internal server error" }, "INTERNAL_ERROR");
 };
 
 export const createApp = (registry: AgentRegistry, options: ChatServerOptions = {}): Express => {
@@ -276,8 +329,13 @@ export const createApp = (registry: AgentRegistry, options: ChatServerOptions = 
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error("timeoutMs must be positive");
   const conversations = options.conversations ?? new FakeConversationStore();
   const memories = options.memories ?? new FakeMemoryStore({ embed: async () => new Float32Array(384) });
+  const requests = options.requests ?? new FakeRequestStore();
+  const logger = options.logger ?? createLogger();
+  const modelPrices = options.modelPrices ?? loadModelPrices(process.env);
 
   const app = express();
+  app.use(requestIdMiddleware(logger));
+  app.use("/chat", chatAuditMiddleware(requests, logger));
   app.use(express.json());
   app.post(
     "/chat",
@@ -291,9 +349,12 @@ export const createApp = (registry: AgentRegistry, options: ChatServerOptions = 
       options.historySummarizer,
       options.sectionBudget,
       options.decideRoute,
+      logger,
     ),
   );
-  app.use(errorHandler);
+  app.get("/requests/:id", getRequestHandler(requests));
+  app.get("/stats", getStatsHandler(requests, modelPrices, options.now));
+  app.use(errorHandler(logger));
   return app;
 };
 

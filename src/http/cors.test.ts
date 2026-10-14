@@ -157,3 +157,47 @@ test("requests without Origin are unchanged and carry no CORS headers", async ()
     assert.equal(response.headers.get("vary"), null);
   });
 });
+
+// --- Private Network Access (feature 015): the published page calling a local API ---
+
+test("corsHeadersFor: allowed preflight asking for private network gets Allow-Private-Network", () => {
+  const { status, headers } = corsHeadersFor(ALLOWED, "OPTIONS", allowlist, true);
+  assert.equal(status, 204);
+  assert.equal(headers["Access-Control-Allow-Private-Network"], "true");
+  assert.equal(headers["Access-Control-Allow-Origin"], ALLOWED);
+});
+
+test("corsHeadersFor: Allow-Private-Network only on allowed preflights that ask for it", () => {
+  assert.equal(corsHeadersFor(ALLOWED, "OPTIONS", allowlist, false).headers["Access-Control-Allow-Private-Network"], undefined);
+  assert.equal(corsHeadersFor(ALLOWED, "POST", allowlist, true).headers["Access-Control-Allow-Private-Network"], undefined);
+  assert.deepEqual(corsHeadersFor("https://evil.example", "OPTIONS", allowlist, true), {
+    status: 403,
+    headers: { Vary: "Origin" },
+  });
+});
+
+test("OPTIONS from the GitHub Pages origin with a private-network request answers 204 with Allow-Private-Network", async () => {
+  const pagesOrigin = "https://rafaeldutra.github.io";
+  const app = createApp({ react: stub }, {
+    corsOrigins: [pagesOrigin],
+    decideRoute: async () => ({ route: "react", reason: "test router" }),
+    logger: createCapturingLogger().logger,
+  });
+  const server: Server = createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, resolve));
+  try {
+    const response = await fetch(`http://127.0.0.1:${(server.address() as AddressInfo).port}/chat`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: pagesOrigin,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Private-Network": "true",
+      },
+    });
+    assert.equal(response.status, 204);
+    assert.equal(response.headers.get("access-control-allow-origin"), pagesOrigin);
+    assert.equal(response.headers.get("access-control-allow-private-network"), "true");
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
+});

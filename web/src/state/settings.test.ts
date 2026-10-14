@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_API_URL, loadSettings, parseApiUrl, saveSettings, STORAGE_KEYS } from "./settings";
+import {
+  DEFAULT_API_URL,
+  loadSettings,
+  parseApiUrl,
+  resolveDefaultApiUrl,
+  saveSettings,
+  STORAGE_KEYS,
+} from "./settings";
 
 describe("parseApiUrl", () => {
   it("accepts http(s) URLs and strips the trailing slash", () => {
@@ -48,5 +55,19 @@ describe("load/save settings", () => {
     });
     expect(loadSettings()).toEqual({ apiUrl: DEFAULT_API_URL, theme: "system", persisted: false });
     expect(saveSettings({ apiUrl: "https://api.x.com", theme: "light" })).toBe(false);
+  });
+});
+
+describe("resolveDefaultApiUrl", () => {
+  it.each([undefined, "", "   "])("falls back to the local API for %j", (raw) => {
+    expect(resolveDefaultApiUrl(raw)).toBe("http://localhost:3000");
+  });
+
+  it("normalizes a valid build-time URL", () => {
+    expect(resolveDefaultApiUrl("https://api.exemplo.com/")).toBe("https://api.exemplo.com");
+  });
+
+  it.each(["ftp://x", "not a url"])("ignores invalid value %j", (raw) => {
+    expect(resolveDefaultApiUrl(raw)).toBe("http://localhost:3000");
   });
 });

@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { z } from "zod";
 
-export const DEFAULT_API_URL: string = stripTrailingSlash(
-  import.meta.env.VITE_OPSPILOT_API_URL ?? "http://localhost:3000",
-);
-
 export const STORAGE_KEYS = { apiUrl: "opspilot.apiUrl", theme: "opspilot.theme" } as const;
 
 export const themeSchema = z.enum(["light", "dark", "system"]);
@@ -53,6 +49,21 @@ export function parseApiUrl(input: string): { ok: true; url: string } | { ok: fa
   if (result.success) return { ok: true, url: result.data };
   return { ok: false, message: result.error.issues[0]?.message ?? "URL inválida." };
 }
+
+const FALLBACK_API_URL = "http://localhost:3000";
+
+/**
+ * Build-time default API URL. GitHub Actions turns an unset repository variable into "",
+ * so blank (and invalid) values fall back to the local API instead of becoming the URL.
+ */
+export function resolveDefaultApiUrl(raw: string | undefined): string {
+  const value = raw?.trim();
+  if (!value) return FALLBACK_API_URL;
+  const parsed = parseApiUrl(value);
+  return parsed.ok ? parsed.url : FALLBACK_API_URL;
+}
+
+export const DEFAULT_API_URL: string = resolveDefaultApiUrl(import.meta.env.VITE_OPSPILOT_API_URL);
 
 function getStorage(): Storage | undefined {
   try {

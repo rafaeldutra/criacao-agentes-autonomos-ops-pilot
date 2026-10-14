@@ -1,16 +1,20 @@
 /// <reference types="vitest/config" />
+import { copyFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Connect, type Plugin } from "vite";
+import { resolveBase } from "./build-config";
 
-const BASE = "/opspilot/";
+/** `/opspilot/` by default; GitHub Pages builds set VITE_BASE=/<repo>/. */
+const base = resolveBase(process.env.VITE_BASE);
 
-/** `/opspilot` (no trailing slash) → 301 `/opspilot/`, in dev and preview alike. */
+/** `<base>` without the trailing slash → 301 `<base>`, in dev and preview alike. */
 const redirectBareBase = (): Plugin => {
   const middleware: Connect.NextHandleFunction = (request, response, next) => {
     const [path, query] = (request.url ?? "").split("?");
-    if (path !== BASE.slice(0, -1)) return next();
+    if (path !== base.slice(0, -1)) return next();
     response.statusCode = 301;
-    response.setHeader("Location", query ? `${BASE}?${query}` : BASE);
+    response.setHeader("Location", query ? `${base}?${query}` : base);
     response.end();
   };
   return {
@@ -20,9 +24,25 @@ const redirectBareBase = (): Plugin => {
   };
 };
 
+/** Copies index.html to 404.html so static hosts (GitHub Pages) serve the app on unknown paths. */
+const emitNotFoundPage = (): Plugin => {
+  let outDir = "";
+  return {
+    name: "opspilot-emit-404",
+    apply: "build",
+    configResolved: (config) => {
+      outDir = resolve(config.root, config.build.outDir);
+    },
+    closeBundle: () => {
+      const index = resolve(outDir, "index.html");
+      if (existsSync(index)) copyFileSync(index, resolve(outDir, "404.html"));
+    },
+  };
+};
+
 export default defineConfig({
-  base: BASE,
-  plugins: [react(), redirectBareBase()],
+  base,
+  plugins: [react(), redirectBareBase(), emitNotFoundPage()],
   server: { port: 5173, fs: { allow: [".."] } },
   preview: { port: 4173 },
   test: {

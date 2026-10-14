@@ -38,10 +38,15 @@ export type CorsDecision = {
   headers: Record<string, string>;
 };
 
+/**
+ * `requestPrivateNetwork`: the preflight carried `Access-Control-Request-Private-Network: true`
+ * (Chrome, when a public page such as GitHub Pages calls a local API).
+ */
 export const corsHeadersFor = (
   origin: string | undefined,
   method: string,
   allowlist: readonly string[],
+  requestPrivateNetwork = false,
 ): CorsDecision => {
   if (!origin) return { headers: {} };
   const preflight = method.toUpperCase() === "OPTIONS";
@@ -61,13 +66,19 @@ export const corsHeadersFor = (
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
       "Access-Control-Max-Age": "600",
+      ...(requestPrivateNetwork ? { "Access-Control-Allow-Private-Network": "true" } : {}),
     },
   };
 };
 
 export const corsMiddleware = (allowlist: readonly string[]) =>
   (request: Request, response: Response, next: NextFunction) => {
-    const decision = corsHeadersFor(request.headers.origin, request.method, allowlist);
+    const decision = corsHeadersFor(
+      request.headers.origin,
+      request.method,
+      allowlist,
+      request.headers["access-control-request-private-network"] === "true",
+    );
     for (const [name, value] of Object.entries(decision.headers)) response.setHeader(name, value);
     if (decision.status) {
       response.status(decision.status).end();

@@ -74,4 +74,6 @@ location = /opspilot { return 301 /opspilot/; }
 location /opspilot/ { alias /srv/opspilot/dist/; try_files $uri $uri/ /opspilot/index.html; }
 ```
 
+O caminho base é configurável por `VITE_BASE` (feature 015; padrão `/opspilot/`). A publicação no GitHub Pages está em `specs/015-web-pages-deploy/quickstart.md`.
+
 Para outro ambiente: `VITE_OPSPILOT_API_URL=https://api.exemplo.com npm run web:build`, e na API `OPSPILOT_CORS_ORIGINS=https://ops.exemplo.com`.

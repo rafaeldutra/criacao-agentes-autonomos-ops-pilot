@@ -1,6 +1,6 @@
 import { createOpenRouterModel } from "./model.js";
 import { createPlanAndExecuteStrategy } from "./plan-and-execute.js";
-import { createReactStrategy } from "./react.js";
+import { createReactStrategy, createToolExecutor } from "./react.js";
 import { withReflection } from "./reflection.js";
 import { createTools } from "./tools.js";
 import type { MemoryStore } from "../memory/memory-store.js";
@@ -31,6 +31,16 @@ export const createAgentRegistry = (
     "plan-and-execute": createPlanAndExecuteStrategy(model, tools),
   };
 };
+
+/**
+ * Executes a tool by name for real. Used for approved actions; it runs outside any
+ * approval context, so the gate in tools.ts lets it through.
+ */
+export const createOpsToolExecutor = (
+  store: OpsStore,
+  options: AgentRegistryOptions = {},
+): ((name: string, args: Record<string, unknown>) => Promise<unknown>) =>
+  createToolExecutor(createTools(store, { memories: options.memories, getUserId: options.getUserId }));
 
 export const resolveStrategy = (
   registry: AgentRegistry,

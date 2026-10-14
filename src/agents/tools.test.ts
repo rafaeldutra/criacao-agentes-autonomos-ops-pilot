@@ -1,3 +1,4 @@
+import type { Incident } from "./types.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createSeededStore } from "./store.js";
@@ -29,7 +30,8 @@ test("tools validate and mutate the seeded store", async () => {
   assert.equal((await tools.listAlerts.invoke({ status: "firing" })).length, 3);
   const incident = await tools.openIncident.invoke({ title: "Queue outage", service: "worker", severity: "high" });
   assert.equal(incident.status, "open");
-  assert.equal((await tools.resolveIncident.invoke({ id: incident.id })).status, "resolved");
+  // Outside an HTTP approval context the gate is inert and the tool runs.
+  assert.equal(((await tools.resolveIncident.invoke({ id: incident.id })) as Incident).status, "resolved");
 });
 
 test("invalid tool input does not mutate state", async () => {

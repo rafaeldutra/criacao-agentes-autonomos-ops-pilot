@@ -8,7 +8,8 @@ OpsPilot é um copiloto de plantão que gerencia alertas e incidentes de produç
 - TypeScript ESM strict.
 - Zod na fronteira HTTP/CLI.
 - Testes com `node:test` via `tsx`.
-- Express com MySQL como banco.
+- Express com SQLite nativo (`node:sqlite`) como banco.
+- War room web em `web/` (projeto npm separado): Vite + React + TypeScript strict, Zod nas respostas da API, CSS Modules + tokens, Vitest + Testing Library + axe-core. Siga `.github/instructions/design.instructions.md`.
 
 ## Comandos
 
@@ -17,6 +18,7 @@ OpsPilot é um copiloto de plantão que gerencia alertas e incidentes de produç
 - `npm run bench` — executa `tsx src/bench.ts`.
 - `npm run test` — executa os testes com `node --import tsx --test "src/**/*.test.ts"`.
 - `npm run typecheck` — executa `tsc --noEmit`.
+- `npm run web:dev` / `web:build` / `web:test` / `web:typecheck` — scripts da war room em `web/`.
 
 ## Convenções
 
@@ -27,6 +29,8 @@ OpsPilot é um copiloto de plantão que gerencia alertas e incidentes de produç
 - Mantenha `npm run typecheck` e `npm run test` verdes.
 - Nunca commite segredos nem leia `.env`.
 - Sempre utilize funções puras.
+- Via HTTP, `resolve_incident` e `forget_preference` só executam após aprovação humana (`POST /chat` → 202, `POST /approvals/:id/decision`). Não contorne o portão em `src/approvals/approval-gate.ts`.
+- CORS por lista em `OPSPILOT_CORS_ORIGINS` (nunca `*`); TTL das aprovações em `OPSPILOT_APPROVAL_TTL_MINUTES`.
 
 ## Fluxo
 

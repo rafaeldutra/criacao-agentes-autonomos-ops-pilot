@@ -1,0 +1,30 @@
+{
+  "requestId": "6f1c2a3e-0b7d-4c5e-9a1f-2d3e4f5a6b7c",
+  "conversationId": "0a9b8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c6d",
+  "status": "pending_approval",
+  "answer": "Preciso da sua aprovação para resolver o incidente inc-1.",
+  "route": "react",
+  "trace": [
+    { "type": "thought", "content": "context built", "node": "context" },
+    { "type": "route", "route": "react", "reason": "diagnóstico com ferramentas", "node": "router" },
+    { "type": "action", "tool": "list_incidents", "args": { "status": "open" }, "node": "react" },
+    { "type": "observation", "content": "[{\"id\":\"inc-1\",\"title\":\"Checkout lento\",\"status\":\"open\"}]", "node": "react" },
+    { "type": "action", "tool": "resolve_incident", "args": { "id": "inc-1", "summary": "Latência normalizada após rollback", "reason": "Métricas estáveis há 30 min" }, "node": "react" },
+    { "type": "observation", "content": "APPROVAL_REQUIRED: a ação resolve_incident aguarda aprovação humana e NÃO foi executada. Não tente novamente; encerre informando que aguarda aprovação.", "node": "react" },
+    { "type": "answer", "content": "Preciso da sua aprovação para resolver o incidente inc-1.", "node": "react" }
+  ],
+  "metrics": { "llmCalls": 3, "latencyMs": 4210, "historyMessages": 0, "memoryFacts": 0, "learningQueued": false, "promptTokens": 1830, "modelUsed": "openai/gpt-4o-mini" },
+  "approval": {
+    "id": "3d2c1b0a-9f8e-4d7c-8b6a-5f4e3d2c1b0a",
+    "conversationId": "0a9b8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c6d",
+    "requestId": "6f1c2a3e-0b7d-4c5e-9a1f-2d3e4f5a6b7c",
+    "tool": "resolve_incident",
+    "args": { "id": "inc-1", "summary": "Latência normalizada após rollback" },
+    "reason": "Métricas estáveis há 30 min",
+    "status": "pending",
+    "createdAt": "2026-10-14T12:00:00.000Z",
+    "decidedAt": null,
+    "result": null,
+    "resumeRequestId": null
+  }
+}

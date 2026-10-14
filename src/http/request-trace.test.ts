@@ -85,3 +85,19 @@ test("chatEndFields summarizes the outcome without content", () => {
   );
   assert.equal(chatEndFields({ errorCode: "CHAT_TIMEOUT", trace }, 504).traceEvents, 0);
 });
+
+test("toRequestRecord keeps route, metrics and the partial trace on a 202 pending approval", () => {
+  const record = toRequestRecord(ID, STARTED, 10, 202, {
+    route: "react",
+    metrics: { llmCalls: 1, historyMessages: 0, memoryFacts: 0 },
+    trace,
+    approvalId: "a-1",
+  });
+  assert.equal(record.status, 202);
+  assert.equal(record.route, "react");
+  assert.equal(record.errorCode, undefined);
+  assert.equal(record.metrics?.llmCalls, 1);
+  assert.deepEqual(record.trace, trace);
+  assert.equal(chatEndFields({ trace, approvalId: "a-1" }, 202).traceEvents, 2);
+  assert.equal(chatEndFields({ trace, approvalId: "a-1" }, 202).approvalId, "a-1");
+});

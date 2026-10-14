@@ -1,0 +1,97 @@
+.agent,
+.person {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-radius: var(--radius-card);
+  min-width: 0;
+}
+
+.agent {
+  align-self: stretch;
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border-subtle);
+}
+
+.person {
+  align-self: flex-end;
+  max-width: 85%;
+  background: var(--color-surface-raised);
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.author {
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  font-weight: var(--weight-semibold);
+}
+
+.time {
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.personText {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow-wrap: anywhere;
+}
+
+.body :where(p, ul, ol, pre, blockquote, table) {
+  margin: 0;
+}
+
+.body :where(ul, ol) {
+  padding-left: var(--space-6);
+}
+
+.body pre {
+  padding: var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-raised);
+  overflow-x: auto;
+}
+
+.body :where(h1, h2, h3, h4, h5, h6) {
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: var(--leading-base);
+  font-weight: var(--weight-semibold);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.link {
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+
+.link:hover {
+  background: var(--color-accent-subtle);
+}

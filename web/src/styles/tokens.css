@@ -1,0 +1,128 @@
+/*
+ * Design tokens for the OpsPilot war room.
+ * Source of truth: .github/instructions/design.instructions.md.
+ * Components consume only these custom properties (no literal colors or off-scale sizes).
+ */
+:root {
+  /* Spacing (4px scale) */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Type scale (size / line height) */
+  --font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  --text-xs: 12px;
+  --leading-xs: 16px;
+  --text-sm: 14px;
+  --leading-sm: 20px;
+  --text-base: 16px;
+  --leading-base: 24px;
+  --text-lg: 18px;
+  --leading-lg: 28px;
+  --text-xl: 20px;
+  --leading-xl: 28px;
+  --text-2xl: 24px;
+  --leading-2xl: 32px;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+
+  /* Shape */
+  --radius-control: 4px;
+  --radius-card: 8px;
+  --radius-pill: 9999px;
+  --border-width: 1px;
+  --focus-ring-width: 2px;
+
+  /* Sizing */
+  --target-min: 44px;
+  --target-min-small: 24px;
+  --content-max-width: 768px;
+  --sheet-width: 480px;
+  --icon-size: 20px;
+  --metric-min-width: 128px;
+
+  /* Light theme colors (default) */
+  --color-bg: #f6f7f9;
+  --color-surface: #ffffff;
+  --color-surface-raised: #eef1f5;
+  --color-text: #16181d;
+  --color-text-muted: #4a5160;
+  --color-border: #6b7383;
+  --color-border-subtle: #d5d9e0;
+  --color-accent: #1d4ed8;
+  --color-accent-hover: #1e40af;
+  --color-on-accent: #ffffff;
+  --color-accent-subtle: #e6edfd;
+  --color-focus: #1d4ed8;
+  --color-danger: #b42318;
+  --color-danger-subtle: #fdecea;
+  --color-warning: #8a5a00;
+  --color-warning-subtle: #fff4dc;
+  --color-success: #18794e;
+  --color-success-subtle: #e7f6ee;
+  --color-info: #1d5fa8;
+  --color-info-subtle: #e8f1fb;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #0f1115;
+    --color-surface: #171a21;
+    --color-surface-raised: #20242d;
+    --color-text: #e6e8eb;
+    --color-text-muted: #a6adbb;
+    --color-border: #6f7887;
+    --color-border-subtle: #2c313b;
+    --color-accent: #8ab4ff;
+    --color-accent-hover: #a8c7ff;
+    --color-on-accent: #0f1115;
+    --color-accent-subtle: #1a2a42;
+    --color-focus: #8ab4ff;
+    --color-danger: #ff8a80;
+    --color-danger-subtle: #3a1d1c;
+    --color-warning: #f2c46d;
+    --color-warning-subtle: #3a2f17;
+    --color-success: #6fcf97;
+    --color-success-subtle: #173326;
+    --color-info: #8ab4ff;
+    --color-info-subtle: #1a2a42;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #0f1115;
+  --color-surface: #171a21;
+  --color-surface-raised: #20242d;
+  --color-text: #e6e8eb;
+  --color-text-muted: #a6adbb;
+  --color-border: #6f7887;
+  --color-border-subtle: #2c313b;
+  --color-accent: #8ab4ff;
+  --color-accent-hover: #a8c7ff;
+  --color-on-accent: #0f1115;
+  --color-accent-subtle: #1a2a42;
+  --color-focus: #8ab4ff;
+  --color-danger: #ff8a80;
+  --color-danger-subtle: #3a1d1c;
+  --color-warning: #f2c46d;
+  --color-warning-subtle: #3a2f17;
+  --color-success: #6fcf97;
+  --color-success-subtle: #173326;
+  --color-info: #8ab4ff;
+  --color-info-subtle: #1a2a42;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}

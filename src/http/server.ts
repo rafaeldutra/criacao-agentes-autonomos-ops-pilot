@@ -36,6 +36,25 @@ import type { RequestStore } from "../store/request-store.js";
 import { createLogger, errorMeta, type Logger } from "../obs/logger.js";
 import { loadModelPrices, type ModelPrices } from "../obs/stats.js";
 import { HISTORY_WINDOW } from "./chat-history.js";
+import { corsMiddleware, parseCorsOrigins } from "./cors.js";
+import { decisionHandler, getApprovalHandler } from "./approvals.js";
+import {
+  createApprovalContext,
+  runWithApprovalContext,
+  type Grant,
+  type PendingCall,
+} from "../approvals/approval-gate.js";
+import { createApprovalService, resolveReason, type ApprovalService } from "../approvals/approval-service.js";
+import {
+  APPROVAL_PENDING,
+  expiryCutoff,
+  loadApprovalTtlMinutes,
+  toApprovalView,
+  type Approval,
+  type ApprovalStore,
+  type ApprovalView,
+} from "../store/approval-store.js";
+import { FakeApprovalStore } from "../store/fake-approval-store.js";
 import { runWithUserId } from "./request-context.js";
 import {
   chatAuditMiddleware,
@@ -79,6 +98,14 @@ export type ChatServerOptions = {
   modelPrices?: ModelPrices;
   /** Clock for /stats windows; injected by tests. */
   now?: () => Date;
+  /** Browser origins allowed by CORS; defaults to parseCorsOrigins(process.env.OPSPILOT_CORS_ORIGINS). */
+  corsOrigins?: readonly string[];
+  /** Pending human approvals; defaults to an in-memory fake. */
+  approvals?: ApprovalStore;
+  /** Minutes an approval stays decidable; defaults to OPSPILOT_APPROVAL_TTL_MINUTES or 1440. */
+  approvalTtlMinutes?: number;
+  /** Runs an approved tool for real; called outside any approval context, so never gated. */
+  executeTool?: (name: string, args: Record<string, unknown>) => Promise<unknown>;
 };
 
 const isTimeout = (error: unknown): error is Error => error instanceof Error && error.message === "CHAT_TIMEOUT";
@@ -197,23 +224,138 @@ const runChat = async (
   };
 };
 
-const chatHandler = (
-  registry: AgentRegistry,
-  timeoutMs: number,
-  reflectionOptions: ReflectionOptions,
-  conversations: ConversationStore,
-  memories: MemoryStore,
-  learningReflector: LearningReflector | undefined,
-  historySummarizer: HistorySummarizer | undefined,
-  sectionBudget: SectionBudget | undefined,
-  decideRoute: DecideRoute | undefined,
-  logger: Logger,
-) => async (request: Request, response: Response) => {
-  const requestId = getRequestId(response);
-  const reply = (status: number, body: object, outcome: ChatOutcome = {}) => {
-    setChatOutcome(response, outcome);
-    response.status(status).json(withRequestId(requestId, body));
+type ChatResult = Awaited<ReturnType<typeof runChat>>;
+
+export type TurnInput = {
+  message: string;
+  conversationId?: string;
+  userId?: string;
+  strategy?: string;
+  reflect: boolean;
+};
+
+/** One agent turn; `pending` is set when the turn stopped at a sensitive tool. */
+export type TurnOutcome = { result: ChatResult; pending?: PendingCall };
+
+type Reply = (status: number, body: object, outcome?: ChatOutcome) => void;
+
+type ChatDeps = {
+  registry: AgentRegistry;
+  timeoutMs: number;
+  reflectionOptions: ReflectionOptions;
+  conversations: ConversationStore;
+  memories: MemoryStore;
+  learningReflector?: LearningReflector;
+  historySummarizer?: HistorySummarizer;
+  sectionBudget?: SectionBudget;
+  decideRoute?: DecideRoute;
+  logger: Logger;
+  approvals: ApprovalStore;
+  approvalService: ApprovalService;
+};
+
+/** Runs runChat inside an approval context holding `grants` (empty for a fresh /chat turn). */
+const runTurn = async (deps: ChatDeps, input: TurnInput, grants: Grant[], requestId: string): Promise<TurnOutcome> => {
+  const context = createApprovalContext(grants);
+  const result = await runWithApprovalContext(context, () =>
+    runWithUserId(input.userId, () =>
+      runWithTimeout(
+        runChat(
+          deps.conversations,
+          deps.memories,
+          deps.registry,
+          { message: input.message, conversationId: input.conversationId, userId: input.userId },
+          {
+            override: input.strategy,
+            reflect: input.reflect,
+            reflectionOptions: deps.reflectionOptions,
+            decideRoute: deps.decideRoute,
+          },
+          deps.historySummarizer,
+          deps.sectionBudget,
+          { logger: deps.logger, requestId },
+        ),
+        deps.timeoutMs,
+      ),
+    ),
+  );
+  return { result, pending: context.pending };
+};
+
+const approvalView = (deps: ChatDeps, approval: Approval): ApprovalView =>
+  toApprovalView(approval, deps.approvalService.now(), deps.approvalService.ttlMinutes);
+
+/**
+ * 200 with the answer, or 202 when the turn stopped at a sensitive tool (the approval is
+ * persisted here). `decided` is the approval that a decision request just resolved.
+ */
+const replyTurn = (
+  deps: ChatDeps,
+  reply: Reply,
+  turn: TurnOutcome,
+  context: { requestId: string; originalMessage: string; userId?: string; decided?: ApprovalView },
+): "final" | "pending" => {
+  const { result, pending } = turn;
+  const outcome: ChatOutcome = {
+    conversationId: result.conversationId,
+    route: result.route,
+    metrics: result.metrics,
+    trace: result.trace,
   };
+  if (!pending) {
+    reply(200, context.decided ? { ...result, approval: context.decided } : result, outcome);
+    return "final";
+  }
+  const approval = deps.approvalService.createPending({
+    conversationId: result.conversationId,
+    requestId: context.requestId,
+    userId: context.userId,
+    pending,
+    reason: resolveReason(pending, result.trace),
+    originalMessage: context.originalMessage,
+  });
+  reply(
+    202,
+    {
+      ...result,
+      status: "pending_approval",
+      approval: approvalView(deps, approval),
+      ...(context.decided ? { decided: context.decided } : {}),
+    },
+    { ...outcome, approvalId: approval.id },
+  );
+  return "pending";
+};
+
+/** Maps the known turn failures to HTTP; false means "not mine, rethrow". */
+const replyTurnError = (reply: Reply, error: unknown): boolean => {
+  if (isTimeout(error)) {
+    reply(504, { error: "Chat execution timed out" }, { errorCode: "CHAT_TIMEOUT" });
+    return true;
+  }
+  if (isConversationNotFound(error)) {
+    reply(404, { error: error.message, code: error.code }, { errorCode: error.code });
+    return true;
+  }
+  if (isRouterFailed(error)) {
+    reply(502, { error: error.message, code: error.code }, { errorCode: error.code });
+    return true;
+  }
+  if (error instanceof ModelUnavailableError) {
+    reply(503, { error: error.message, code: error.code }, { errorCode: error.code });
+    return true;
+  }
+  return false;
+};
+
+const replyFor = (response: Response, requestId: string): Reply => (status, body, outcome = {}) => {
+  setChatOutcome(response, outcome);
+  response.status(status).json(withRequestId(requestId, body));
+};
+
+const chatHandler = (deps: ChatDeps) => async (request: Request, response: Response) => {
+  const requestId = getRequestId(response);
+  const reply = replyFor(response, requestId);
 
   const parsed = chatRequestSchema.safeParse(request.body);
   if (!parsed.success) {
@@ -226,7 +368,7 @@ const chatHandler = (
     reflect: parsed.data.reflect,
   });
 
-  if (!registry.react) {
+  if (!deps.registry.react) {
     reply(422, { error: "Unknown strategy: react" }, { errorCode: "UNKNOWN_STRATEGY" });
     return;
   }
@@ -235,65 +377,37 @@ const chatHandler = (
     return;
   }
 
+  if (parsed.data.conversationId) {
+    const waiting = deps.approvals.findPending(
+      parsed.data.conversationId,
+      expiryCutoff(deps.approvalService.now(), deps.approvalService.ttlMinutes),
+    );
+    if (waiting) {
+      reply(
+        409,
+        { error: "Conversation has a pending approval", code: APPROVAL_PENDING, approvalId: waiting.id },
+        { errorCode: APPROVAL_PENDING },
+      );
+      return;
+    }
+  }
+
   const userId = parsed.data.userId;
 
   try {
-    const result = await runWithUserId(userId, () =>
-      runWithTimeout(
-        runChat(
-          conversations,
-          memories,
-          registry,
-          {
-            message: parsed.data.message,
-            conversationId: parsed.data.conversationId,
-            userId,
-          },
-          {
-            override: parsed.data.strategy,
-            reflect: parsed.data.reflect,
-            reflectionOptions,
-            decideRoute,
-          },
-          historySummarizer,
-          sectionBudget,
-          { logger, requestId },
-        ),
-        timeoutMs,
-      ),
-    );
-    reply(200, result, {
-      conversationId: result.conversationId,
-      route: result.route,
-      metrics: result.metrics,
-      trace: result.trace,
-    });
+    const turn = await runTurn(deps, parsed.data, [], requestId);
+    const kind = replyTurn(deps, reply, turn, { requestId, originalMessage: parsed.data.message, userId });
 
-    if (userId && learningReflector) {
+    if (kind === "final" && userId && deps.learningReflector) {
       scheduleLearning({
         userId,
         userMessage: parsed.data.message,
-        memories,
-        reflect: learningReflector,
+        memories: deps.memories,
+        reflect: deps.learningReflector,
       });
     }
   } catch (error) {
-    if (isTimeout(error)) {
-      reply(504, { error: "Chat execution timed out" }, { errorCode: "CHAT_TIMEOUT" });
-      return;
-    }
-    if (isConversationNotFound(error)) {
-      reply(404, { error: error.message, code: error.code }, { errorCode: error.code });
-      return;
-    }
-    if (isRouterFailed(error)) {
-      reply(502, { error: error.message, code: error.code }, { errorCode: error.code });
-      return;
-    }
-    if (error instanceof ModelUnavailableError) {
-      reply(503, { error: error.message, code: error.code }, { errorCode: error.code });
-      return;
-    }
+    if (replyTurnError(reply, error)) return;
     throw error;
   }
 };
@@ -332,26 +446,62 @@ export const createApp = (registry: AgentRegistry, options: ChatServerOptions = 
   const requests = options.requests ?? new FakeRequestStore();
   const logger = options.logger ?? createLogger();
   const modelPrices = options.modelPrices ?? loadModelPrices(process.env);
+  const corsOrigins = options.corsOrigins ?? parseCorsOrigins(process.env.OPSPILOT_CORS_ORIGINS);
 
   const app = express();
   app.use(requestIdMiddleware(logger));
+  // Before the audit and body parser: preflights are neither persisted nor parsed.
+  app.use(corsMiddleware(corsOrigins));
   app.use("/chat", chatAuditMiddleware(requests, logger));
   app.use(express.json());
+
+  const approvals = options.approvals ?? new FakeApprovalStore();
+  const approvalService = createApprovalService({
+    approvals,
+    executeTool: async ({ tool, args, userId }) => {
+      const execute = options.executeTool;
+      if (!execute) throw new Error("Approved tool execution is not configured");
+      return runWithUserId(userId ?? undefined, () => execute(tool, args));
+    },
+    now: options.now,
+    ttlMinutes: options.approvalTtlMinutes ?? loadApprovalTtlMinutes(process.env),
+  });
+  const deps: ChatDeps = {
+    registry,
+    timeoutMs,
+    reflectionOptions: options.reflectionOptions ?? {},
+    conversations,
+    memories,
+    learningReflector: options.learningReflector,
+    historySummarizer: options.historySummarizer,
+    sectionBudget: options.sectionBudget,
+    decideRoute: options.decideRoute,
+    logger,
+    approvals,
+    approvalService,
+  };
+  const view = (approval: Approval) => approvalView(deps, approval);
+
+  app.post("/chat", chatHandler(deps));
   app.post(
-    "/chat",
-    chatHandler(
-      registry,
-      timeoutMs,
-      options.reflectionOptions ?? {},
-      conversations,
-      memories,
-      options.learningReflector,
-      options.historySummarizer,
-      options.sectionBudget,
-      options.decideRoute,
-      logger,
-    ),
+    "/approvals/:id/decision",
+    chatAuditMiddleware(requests, logger),
+    decisionHandler({
+      service: approvalService,
+      view,
+      reply: replyFor,
+      runTurn: (approval, message, grants, requestId) =>
+        runTurn(
+          deps,
+          { message, conversationId: approval.conversationId, userId: approval.userId ?? undefined, reflect: false },
+          grants,
+          requestId,
+        ),
+      replyTurn: (reply, turn, context) => replyTurn(deps, reply, turn, context),
+      replyTurnError,
+    }),
   );
+  app.get("/approvals/:id", getApprovalHandler({ service: approvalService, view }));
   app.get("/requests/:id", getRequestHandler(requests));
   app.get("/stats", getStatsHandler(requests, modelPrices, options.now));
   app.use(errorHandler(logger));

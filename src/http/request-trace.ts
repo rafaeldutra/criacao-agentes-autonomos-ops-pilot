@@ -23,6 +23,8 @@ export type ChatOutcome = {
   metrics?: RequestMetrics;
   trace?: TraceEvent[];
   errorCode?: string;
+  /** Set when the turn ended waiting for a human decision (HTTP 202). */
+  approvalId?: string;
 };
 
 type TraceLocals = {
@@ -66,7 +68,8 @@ export const toRequestRecord = (
   status: number,
   outcome: ChatOutcome = {},
 ): RequestRecordInput => {
-  const ok = status === 200;
+  // 202 = turn finished waiting for approval: its partial trace and metrics are kept too.
+  const ok = status === 200 || status === 202;
   return {
     requestId,
     createdAt: startedAt,
@@ -99,7 +102,8 @@ export const chatEndFields = (outcome: ChatOutcome | undefined, status: number):
         llmCalls: outcome.metrics?.llmCalls,
         promptTokens: outcome.metrics?.promptTokens,
         modelUsed: outcome.metrics?.modelUsed,
-        traceEvents: status === 200 ? (outcome.trace?.length ?? 0) : 0,
+        traceEvents: status === 200 || status === 202 ? (outcome.trace?.length ?? 0) : 0,
+        ...(outcome.approvalId ? { approvalId: outcome.approvalId } : {}),
       }
     : {};
 

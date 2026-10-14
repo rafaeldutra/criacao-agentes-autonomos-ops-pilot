@@ -1,0 +1,91 @@
+.chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.scroller {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.inner,
+.composer > * {
+  width: 100%;
+  max-width: var(--content-max-width);
+  margin-inline: auto;
+}
+
+.inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.log {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.composer {
+  background: var(--color-surface);
+}
+
+.pending {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: var(--border-width) solid var(--color-border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+}
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.line,
+.lineShort {
+  display: block;
+  height: var(--space-3);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-raised);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.lineShort {
+  width: 60%;
+}
+
+.pendingText {
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+  color: var(--color-text-muted);
+}
+
+.stop {
+  align-self: flex-start;
+  min-height: var(--target-min);
+  padding: var(--space-2) var(--space-4);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}

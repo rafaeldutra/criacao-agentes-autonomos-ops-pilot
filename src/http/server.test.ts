@@ -890,7 +890,9 @@ test("persists the full trace including post-graph summarize and fallback events
 test("a failing request store does not change the chat response and logs request.persist_failed", async () => {
   const strip = (json: unknown) => {
     const { requestId: _requestId, conversationId: _conversationId, ...rest } = json as Record<string, unknown>;
-    return rest;
+    // latencyMs is wall-clock and differs between the two runs.
+    const { latencyMs: _latencyMs, ...metrics } = rest.metrics as Record<string, unknown>;
+    return { ...rest, metrics };
   };
   const failing: RequestStore = {
     record: () => {

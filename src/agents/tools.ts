@@ -1,6 +1,7 @@
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { createSeededStore } from "./store.js";
+import { withApprovalGate } from "../approvals/approval-gate.js";
 import type { AlertStatus, IncidentFilter, Severity } from "./types.js";
 import type { MemoryStore } from "../memory/memory-store.js";
 import type { OpsStore } from "../store/ops-store.js";
@@ -30,6 +31,16 @@ export const checkProviderStatusSchema = z.object({ provider: providerSchema });
 export const forgetPreferenceSchema = z.object({
   preference: z.string().trim().min(1).describe("Description of the preference or fact to forget"),
 });
+
+/** Shown to the human approver; agent-only (the MCP schemas above stay unchanged). */
+const approvalReasonSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .optional()
+  .describe("Why this action is needed now (shown to the human approver).");
+export const resolveIncidentAgentSchema = resolveIncidentSchema.extend({ reason: approvalReasonSchema });
+export const forgetPreferenceAgentSchema = forgetPreferenceSchema.extend({ reason: approvalReasonSchema });
 
 const providerStatusSchema = z.object({
   status: z.object({
@@ -97,9 +108,15 @@ export const createTools = (store: OpsStore = createSeededStore(), options: Tool
     (input) => store.openIncident(input.title, input.service, input.severity as Severity),
     { name: "open_incident", description: "Open an incident for a service.", schema: openIncidentSchema },
   ),
+  // Sensitive: inside an HTTP /chat turn these only run with a human approval (see approval-gate.ts).
   resolveIncident: tool(
-    (input) => store.resolveIncident(input.id, input.summary),
-    { name: "resolve_incident", description: "Resolve an existing incident after mitigation has been verified.", schema: resolveIncidentSchema },
+    withApprovalGate("resolve_incident", (input: z.infer<typeof resolveIncidentAgentSchema>) =>
+      store.resolveIncident(input.id, input.summary)),
+    {
+      name: "resolve_incident",
+      description: "Resolve an existing incident after mitigation has been verified. Requires human approval; always fill reason.",
+      schema: resolveIncidentAgentSchema,
+    },
   ),
   listIncidents: tool(
     (input) => store.listIncidents(input.status as IncidentFilter),
@@ -118,7 +135,7 @@ export const createTools = (store: OpsStore = createSeededStore(), options: Tool
     },
   ),
   forgetPreference: tool(
-    async (input) => {
+    withApprovalGate("forget_preference", async (input: z.infer<typeof forgetPreferenceAgentSchema>) => {
       const memories = options.memories;
       if (!memories) return "Memory store is not configured.";
       const userId = options.getUserId?.();
@@ -130,11 +147,11 @@ export const createTools = (store: OpsStore = createSeededStore(), options: Tool
 
       memories.forget(best.id);
       return `Forgotten: ${best.fact}`;
-    },
+    }),
     {
       name: "forget_preference",
-      description: "Remove a previously learned user preference from semantic memory.",
-      schema: forgetPreferenceSchema,
+      description: "Remove a previously learned user preference from semantic memory. Requires human approval; always fill reason.",
+      schema: forgetPreferenceAgentSchema,
     },
   ),
 });

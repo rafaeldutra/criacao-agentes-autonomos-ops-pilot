@@ -57,6 +57,17 @@ Node.js 22 LTS, TypeScript ESM strict, Zod, `node:test` via `tsx`, Express,
 SQLite nativo por `node:sqlite`/`DatabaseSync` e LangChain/LangGraph sobre
 OpenRouter. Sequelize/MySQL não são dependências de persistência operacional.
 
+## Stack da interface web (`web/`)
+
+A interface web (war room) é um projeto npm separado em `web/`, sem
+workspaces, para não afetar as dependências da API. Usa Vite, React e
+TypeScript strict; Zod valida toda resposta da API antes de virar estado;
+estilos com CSS Modules e tokens de design em CSS custom properties; testes
+com Vitest, Testing Library e vitest-axe. Toda tela segue
+`.github/instructions/design.instructions.md` (hierarquia, escala de
+espaçamento, estados carregando/vazio/erro, dark mode e WCAG 2.2 AA).
+Conteúdo vindo da API nunca é renderizado como HTML ativo.
+
 ## Comandos oficiais
 
 - `npm run dev` — executa `tsx src/index.ts`.
@@ -64,9 +75,11 @@ OpenRouter. Sequelize/MySQL não são dependências de persistência operacional
 - `npm run bench` — executa `tsx src/bench.ts`.
 - `npm run test` — executa `node --import tsx --test "src/**/*.test.ts"`.
 - `npm run typecheck` — executa `tsc --noEmit`.
+- `npm run web:dev` / `web:build` / `web:test` / `web:typecheck` — executam os
+  scripts equivalentes de `web/` (`npm --prefix web run ...`).
 
 ## Governance
 
 Esta constituição orienta specs, planos, tarefas e implementações do OpsPilot. Alterações devem ser documentadas, revisadas e versionadas junto com o projeto.
 
-**Version**: 1.1.0 | **Ratified**: 2026-09-08 | **Last Amended**: 2026-09-15
+**Version**: 1.2.0 | **Ratified**: 2026-09-08 | **Last Amended**: 2026-10-14

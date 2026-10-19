@@ -64,17 +64,16 @@ Copie o conteúdo de `web/dist/` para o diretório servido (no exemplo, `/srv/op
 
 ## Publicação no GitHub Pages
 
-O fluxo [`.github/workflows/pages.yml`](../.github/workflows/pages.yml) publica a war room em **https://rafaeldutra.github.io/criacao-agentes-autonomos-ops-pilot/**.
+O fluxo [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) publica a war room em **https://rafaeldutra.github.io/criacao-agentes-autonomos-ops-pilot/**.
 
 | Gatilho | O que acontece |
 |---------|----------------|
-| Push na `master` alterando `web/**`, o próprio fluxo ou os fixtures de contrato | typecheck → testes → build → publicação |
-| Pull request com essas mudanças | typecheck → testes → build, **sem publicar** |
-| Actions → **Pages** → **Run workflow** | igual ao push (publica só a partir da `master`) |
+| Push na `master` | job `build` (em `web/`: `npm ci` → `npm test` → `npm run build` com `VITE_BASE=/<repo>/` → `upload-pages-artifact` de `web/dist`) e job `deploy` (`deploy-pages`, ambiente `github-pages`) |
+| Actions → **Deploy** → **Run workflow** | o mesmo, sem precisar de commit |
 
-Se qualquer etapa falhar, nada é publicado e a versão anterior continua no ar. As publicações são serializadas e uma publicação em andamento nunca é cancelada.
+Se o build ou os testes falharem, nada é publicado e a versão anterior continua no ar. As publicações são serializadas e uma publicação em andamento nunca é cancelada.
 
-**Permissões**: o fluxo inteiro só lê o repositório (`contents: read`); apenas o job `deploy` recebe `pages: write` e `id-token: write`, no ambiente protegido `github-pages`. Nenhum segredo é usado.
+**Permissões** do fluxo: `contents: read`, `pages: write` e `id-token: write` (OIDC exigido por `deploy-pages`). Nenhum segredo é usado.
 
 ### Configuração única (administração do repositório)
 
@@ -95,7 +94,7 @@ Quando a página publicada chama uma API em `localhost`, o Chrome trata isso com
 
 ### Verificar ou repetir uma publicação
 
-- **Actions → Pages**: cada execução mostra os jobs `build` e `deploy`; o `deploy` exibe o endereço publicado (`page_url`).
+- **Actions → Deploy**: cada execução mostra os jobs `build` e `deploy`; o `deploy` exibe o endereço publicado (`page_url`).
 - Para republicar sem commit (por exemplo, depois de mudar `OPSPILOT_API_URL`): **Run workflow** na `master`.
 - Para reproduzir o build do Pages localmente:
 

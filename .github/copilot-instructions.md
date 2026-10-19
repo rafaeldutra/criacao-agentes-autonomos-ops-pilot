@@ -31,7 +31,7 @@ OpsPilot é um copiloto de plantão que gerencia alertas e incidentes de produç
 - Sempre utilize funções puras.
 - Via HTTP, `resolve_incident` e `forget_preference` só executam após aprovação humana (`POST /chat` → 202, `POST /approvals/:id/decision`). Não contorne o portão em `src/approvals/approval-gate.ts`.
 - CORS por lista em `OPSPILOT_CORS_ORIGINS` (nunca `*`); TTL das aprovações em `OPSPILOT_APPROVAL_TTL_MINUTES`.
-- A war room é publicada no GitHub Pages por `.github/workflows/pages.yml` (push na `master` em `web/**`; PRs só verificam). O build usa `VITE_BASE` (padrão `/opspilot/`; no Pages, `/<repo>/`) e a variável de repositório `OPSPILOT_API_URL` (pública, nunca segredo). Escrita (`pages`/`id-token`) só no job `deploy`.
+- A war room é publicada no GitHub Pages por `.github/workflows/deploy.yml` (push na `master` ou disparo manual). O build usa `VITE_BASE` (padrão `/opspilot/`; no Pages, `/<repo>/`) e a variável de repositório `OPSPILOT_API_URL` (pública, nunca segredo).
 
 ## Fluxo
 

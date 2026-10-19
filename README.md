@@ -1,6 +1,6 @@
 # OpsPilot
 
-[![Pages](https://github.com/rafaeldutra/criacao-agentes-autonomos-ops-pilot/actions/workflows/pages.yml/badge.svg)](https://github.com/rafaeldutra/criacao-agentes-autonomos-ops-pilot/actions/workflows/pages.yml)
+[![Deploy](https://github.com/rafaeldutra/criacao-agentes-autonomos-ops-pilot/actions/workflows/deploy.yml/badge.svg)](https://github.com/rafaeldutra/criacao-agentes-autonomos-ops-pilot/actions/workflows/deploy.yml)
 
 O OpsPilot é um copiloto de plantão para alertas e incidentes de produção. A API é um agente LangChain/LangGraph sobre OpenRouter que lista alertas e incidentes, consulta runbooks, verifica o status de provedores externos e abre ou resolve incidentes. Pela API HTTP, ações sensíveis (`resolve_incident` e `forget_preference`) só executam depois de **aprovação humana**.
 

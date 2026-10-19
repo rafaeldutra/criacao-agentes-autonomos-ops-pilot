@@ -1,5 +1,7 @@
 # Contract: `.github/workflows/pages.yml`
 
+> **Substituído em 2026-10-19** por `.github/workflows/deploy.yml`, a pedido da pessoa mantenedora. Ele dispara só em push na `master` e por disparo manual, sem PR nem filtro de caminhos; os jobs `build` (`npm ci`, `npm test`, `npm run build` em `web/` com `VITE_BASE=/<repo>/`, depois `upload-pages-artifact`) e `deploy` (`deploy-pages`, ambiente `github-pages`) continuam; as permissões `contents: read`, `pages: write` e `id-token: write` ficam no nível do fluxo. O conteúdo abaixo é o registro histórico da 015.
+
 ## Gatilhos
 
 | Evento | Filtro | Jobs |

@@ -4,7 +4,7 @@ import { describe, it } from "vitest";
 import { App } from "./App";
 import { expectNoAxeViolations } from "./test/axe";
 import { chatFinal, chatPending, createFakeClient, httpFailure, type FakeClient } from "./test/fakeClient";
-import { chat200, chat202 } from "./test/fixtures";
+import { chat200, chat202, chatTeam200 } from "./test/fixtures";
 
 type Scenario = (client: FakeClient, user: ReturnType<typeof userEvent.setup>) => Promise<void>;
 
@@ -22,6 +22,12 @@ const scenarios: Record<string, Scenario> = {
   },
   "reasoning panel open": async (client, user) => {
     client.postChat.mockResolvedValue(chatFinal(chat200()));
+    await sendMessage(user);
+    await user.click(await screen.findByRole("button", { name: "Ver raciocínio" }));
+    screen.getByRole("dialog", { name: "Raciocínio" });
+  },
+  "team reasoning panel open": async (client, user) => {
+    client.postChat.mockResolvedValue(chatFinal(chatTeam200()));
     await sendMessage(user);
     await user.click(await screen.findByRole("button", { name: "Ver raciocínio" }));
     screen.getByRole("dialog", { name: "Raciocínio" });

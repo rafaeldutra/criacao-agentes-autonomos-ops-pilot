@@ -1,12 +1,15 @@
 import chat202Json from "../../../specs/014-war-room-web/contracts/fixtures/chat-202.json";
 import decision409Json from "../../../specs/014-war-room-web/contracts/fixtures/decision-409.json";
 import decisionApprove200Json from "../../../specs/014-war-room-web/contracts/fixtures/decision-approve-200.json";
+import chatTeam200Json from "../../../specs/016-team-supervisor-mode/contracts/fixtures/chat-200-team.json";
 
 /** Contract fixtures shared with the API tests (deep-cloned so tests may mutate freely). */
 export const chat202 = (): typeof chat202Json => structuredClone(chat202Json);
 export const decisionApprove200 = (): typeof decisionApprove200Json =>
   structuredClone(decisionApprove200Json);
 export const decision409 = (): typeof decision409Json => structuredClone(decision409Json);
+/** A 200 /chat body of the team route (specs/016-team-supervisor-mode). */
+export const chatTeam200 = (): typeof chatTeam200Json => structuredClone(chatTeam200Json);
 
 /** A 200 /chat body containing every known TraceEvent type plus one unknown event. */
 export const chat200 = () => ({

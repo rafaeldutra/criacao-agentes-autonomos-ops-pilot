@@ -174,6 +174,7 @@ const runChat = async (
     strategies: {
       react: registry.react,
       "plan-and-execute": registry["plan-and-execute"] ?? registry.react,
+      ...(registry.team ? { team: registry.team } : {}),
     },
     decideRoute: graphOptions.decideRoute,
     reflectionOptions: graphOptions.reflectionOptions,

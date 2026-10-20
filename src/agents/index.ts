@@ -3,6 +3,7 @@ import { createPlanAndExecuteStrategy } from "./plan-and-execute.js";
 import { createReactStrategy, createToolExecutor } from "./react.js";
 import { withReflection } from "./reflection.js";
 import { createTools } from "./tools.js";
+import { createTeamStrategy } from "../team/team-graph.js";
 import type { MemoryStore } from "../memory/memory-store.js";
 import { SqliteOpsStore } from "../store/sqlite-ops-store.js";
 import type { OpsStore } from "../store/ops-store.js";
@@ -29,6 +30,8 @@ export const createAgentRegistry = (
   return {
     react: createReactStrategy(model, tools),
     "plan-and-execute": createPlanAndExecuteStrategy(model, tools),
+    // Same tools instance: resolve_incident keeps its approval gate inside the team.
+    team: createTeamStrategy(model, tools),
   };
 };
 

@@ -184,6 +184,28 @@ test("uses strategy as graph override without calling decideRoute", async () => 
   );
 });
 
+test("strategy team runs the team strategy and returns its handoffs", async () => {
+  const team = strategy("team", async () => ({
+    ...result("Incidente aberto."),
+    trace: [
+      { type: "handoff", from: "supervisor", to: "analista", brief: "fatos", node: "supervisor" },
+      { type: "handoff", from: "supervisor", to: "done", brief: "Incidente aberto.", node: "supervisor" },
+      { type: "answer", content: "Incidente aberto." },
+    ],
+  }));
+  await withServer(createApp({ react: strategy("react"), team }), async (server) => {
+    const response = await request(server, { message: "checkout", strategy: "team" });
+    assert.equal(response.status, 200);
+    const body = response.json as { answer: string; route: string; trace: Array<{ type: string; to?: string; node?: string }> };
+    assert.equal(body.answer, "Incidente aberto.");
+    assert.equal(body.route, "team");
+    assert.deepEqual(
+      body.trace.filter((event) => event.type === "handoff").map((event) => [event.to, event.node]),
+      [["analista", "supervisor"], ["done", "supervisor"]],
+    );
+  });
+});
+
 test("maps router failure to 502", async () => {
   await withServer(
     createApp(

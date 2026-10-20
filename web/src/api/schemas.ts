@@ -12,11 +12,18 @@ export const graphNodeSchema = z.enum([
   "react",
   "plan-and-execute",
   "reflect",
+  "team",
+  "supervisor",
+  "analista",
+  "planejador",
+  "executor",
   "response",
 ]);
 export type GraphNode = z.infer<typeof graphNodeSchema>;
 
-const routeNameSchema = z.enum(["react", "plan-and-execute", "reflect"]);
+const routeNameSchema = z.enum(["react", "plan-and-execute", "reflect", "team"]);
+export const teamTargetSchema = z.enum(["analista", "planejador", "executor", "done"]);
+export type TeamTarget = z.infer<typeof teamTargetSchema>;
 const nodeField = { node: graphNodeSchema.optional() };
 const argsSchema = z.record(z.string(), z.unknown());
 
@@ -43,6 +50,14 @@ export const knownTraceEventSchema = z.discriminatedUnion("type", [
     fromModel: z.string(),
     toModel: z.string(),
     reason: z.string(),
+    ...nodeField,
+  }),
+  z.object({
+    type: z.literal("handoff"),
+    from: z.literal("supervisor"),
+    to: teamTargetSchema,
+    brief: z.string(),
+    limitReached: z.boolean().optional(),
     ...nodeField,
   }),
 ]);

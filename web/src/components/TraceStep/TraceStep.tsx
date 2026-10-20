@@ -82,6 +82,21 @@ function Body({ body }: { body: TraceBody }) {
           : {body.reason}
         </p>
       );
+    case "handoff":
+      return (
+        <div className={styles.stack}>
+          <p className={styles.handoffTarget}>
+            <Icon name="arrow-right" />
+            <span>
+              <span aria-hidden="true">Para: </span>
+              <span className="visually-hidden">Passagem para </span>
+              <strong className={styles.strong}>{body.toLabel}</strong>
+            </span>
+          </p>
+          <Collapsible text={body.brief} as="p" />
+          {body.limitReached && <p className={styles.limit}>Teto de 8 passagens atingido</p>}
+        </div>
+      );
     case "unknown":
       return <Collapsible text={body.json} as="pre" />;
   }
@@ -90,7 +105,7 @@ function Body({ body }: { body: TraceBody }) {
 export function TraceStep({ event }: { event: TraceEvent }) {
   const description = describeTraceEvent(event);
   return (
-    <li className={styles.step} data-highlight={description.highlight}>
+    <li className={styles.step} data-highlight={description.highlight} data-kind={description.body.kind}>
       <div className={styles.labels}>
         <span className={styles.badge}>{description.label}</span>
         {description.nodeLabel && (

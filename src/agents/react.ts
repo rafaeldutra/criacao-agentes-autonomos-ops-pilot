@@ -11,18 +11,23 @@ const text = (content: unknown): string =>
 
 const toolByName = (tools: AgentTools, name: string) => Object.values(tools).find((candidate) => candidate.name === name);
 
+/** Defined tools of a full or partial set (team roles bind only a subset). */
+export const boundTools = (tools: Partial<AgentTools>) =>
+  Object.values(tools).filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== undefined);
+
 export const createReactStrategy = (
   model = createOpenRouterModel(),
-  tools = createTools(),
+  tools: Partial<AgentTools> = createTools(),
 ): ReasoningStrategy => ({
   name: "react",
   async run(input: ReasoningInput, options?: ReasoningOptions): Promise<ReasoningResult> {
     const startedAt = Date.now();
     const limit = maxIterations(options);
     // Dynamic llm: a static one must be a ChatModel, which the retry/fallback chain is not.
+    const bound = boundTools(tools);
     const agent = createReactAgent({
-      llm: () => model.bindTools(Object.values(tools)),
-      tools: Object.values(tools),
+      llm: () => model.bindTools(bound),
+      tools: bound,
       name: "ops-pilot-react",
     });
     const state = await agent.invoke(

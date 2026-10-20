@@ -79,3 +79,5 @@ Consumidores **devem** aceitar tipos desconhecidos (`{ type: string, ... }`) sem
 ## Persistência (delta da 013)
 
 - `toRequestRecord` persiste métricas e trace também em **202**. O `GET /requests/:id` de um 202 devolve o trace parcial.
+
+> **Ver também: 016** — a rota `team`, os nós `team | supervisor | analista | planejador | executor` e o evento `handoff` são acréscimos descritos em [specs/016-team-supervisor-mode/contracts/chat-http.md](../../016-team-supervisor-mode/contracts/chat-http.md).

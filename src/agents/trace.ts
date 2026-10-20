@@ -1,4 +1,4 @@
-import type { GraphNode, PlanStep, StrategyRoute, TraceEvent } from "./types.js";
+import type { GraphNode, PlanStep, StrategyRoute, TeamTarget, TraceEvent } from "./types.js";
 
 export const thought = (content: string): TraceEvent => ({ type: "thought", content });
 export const action = (tool: string, args: Record<string, unknown>): TraceEvent => ({
@@ -25,6 +25,15 @@ export const fallback = (fromModel: string, toModel: string, reason: string): Tr
   reason,
 });
 
+export const handoff = (to: TeamTarget, brief: string, limitReached = false): TraceEvent => ({
+  type: "handoff",
+  from: "supervisor",
+  to,
+  brief,
+  ...(limitReached ? { limitReached: true } : {}),
+  node: "supervisor",
+});
+
 export const withNode =(events: readonly TraceEvent[], node: GraphNode): TraceEvent[] =>
   events.map((event) => ({ ...event, node: event.node ?? node }));
 
@@ -37,6 +46,9 @@ export const formatTrace = (events: readonly TraceEvent[]): string =>
       }
       if (event.type === "fallback") {
         return `[${label}] ${event.fromModel} -> ${event.toModel} (${event.reason})`;
+      }
+      if (event.type === "handoff") {
+        return `[${label}] -> ${event.to} ${event.brief}${event.limitReached ? " (limit)" : ""}`;
       }
       if (event.type === "action") {
         return `[${label}] ${event.tool} ${JSON.stringify(event.args)}`;

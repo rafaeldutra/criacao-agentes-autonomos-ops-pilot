@@ -1,4 +1,4 @@
-import type { GraphNode, PlanStep, TraceEvent } from "../../api/schemas";
+import type { GraphNode, PlanStep, TeamTarget, TraceEvent } from "../../api/schemas";
 
 export const NODE_LABELS: Record<GraphNode, string> = {
   context: "Contexto",
@@ -6,6 +6,11 @@ export const NODE_LABELS: Record<GraphNode, string> = {
   react: "ReAct",
   "plan-and-execute": "Plano e execução",
   reflect: "Reflexão",
+  team: "Equipe",
+  supervisor: "Supervisor",
+  analista: "Analista",
+  planejador: "Planejador",
+  executor: "Executor",
   response: "Resposta",
 };
 
@@ -13,6 +18,14 @@ export const ROUTE_LABELS: Record<string, string> = {
   react: "ReAct",
   "plan-and-execute": "Plano e execução",
   reflect: "Reflexão",
+  team: "Equipe",
+};
+
+export const TEAM_TARGET_LABELS: Record<TeamTarget, string> = {
+  analista: "Analista",
+  planejador: "Planejador",
+  executor: "Executor",
+  done: "Encerrar",
 };
 
 export const STEP_STATUS_LABELS: Record<PlanStep["status"], string> = {
@@ -30,6 +43,7 @@ export type TraceBody =
     }
   | { kind: "route"; route: string; reason: string }
   | { kind: "fallback"; fromModel: string; toModel: string; reason: string }
+  | { kind: "handoff"; toLabel: string; brief: string; limitReached: boolean }
   | { kind: "unknown"; json: string };
 
 export interface TraceDescription {
@@ -101,6 +115,19 @@ export function describeTraceEvent(event: TraceEvent): TraceDescription {
         {
           label: "Troca de modelo",
           body: { kind: "fallback", fromModel: event.fromModel, toModel: event.toModel, reason: event.reason },
+        },
+        event.node,
+      );
+    case "handoff":
+      return withNode(
+        {
+          label: "Passagem",
+          body: {
+            kind: "handoff",
+            toLabel: TEAM_TARGET_LABELS[event.to],
+            brief: event.brief,
+            limitReached: event.limitReached === true,
+          },
         },
         event.node,
       );

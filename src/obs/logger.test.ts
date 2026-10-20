@@ -93,3 +93,14 @@ test("errorMeta keeps only name and the first line of the message, capped at 200
   assert.deepEqual(errorMeta("plain failure"), { errorName: "string", errorMessage: "plain failure" });
   assert.deepEqual(errorMeta(undefined), { errorName: "undefined", errorMessage: "undefined" });
 });
+
+test("traceEventMeta logs handoff destination and size, never the brief", () => {
+  const secret = "SECRET-BRIEF";
+  const meta = traceEventMeta({ type: "handoff", from: "supervisor", to: "executor", brief: secret, node: "supervisor" }, 5);
+  assert.deepEqual(meta, { seq: 5, node: "supervisor", type: "handoff", to: "executor", chars: secret.length });
+  assert.deepEqual(
+    traceEventMeta({ type: "handoff", from: "supervisor", to: "done", brief: secret, limitReached: true, node: "supervisor" }, 6),
+    { seq: 6, node: "supervisor", type: "handoff", to: "done", limitReached: true, chars: secret.length },
+  );
+  assert.equal(JSON.stringify(meta).includes(secret), false);
+});

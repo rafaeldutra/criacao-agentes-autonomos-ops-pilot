@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chat200, chat202, decision409, decisionApprove200 } from "../test/fixtures";
+import { chat200, chat202, chatTeam200, decision409, decisionApprove200 } from "../test/fixtures";
 import { apiErrorSchema, chatOkSchema, chatPendingSchema, decisionOkSchema, traceEventSchema } from "./schemas";
 
 describe("API schemas", () => {
@@ -41,5 +41,21 @@ describe("API schemas", () => {
 
   it("rejects events without a string type", () => {
     expect(traceEventSchema.safeParse({ foo: 1 }).success).toBe(false);
+  });
+
+  it("accepts the team route, team nodes and typed handoff events", () => {
+    const body = chatOkSchema.parse(chatTeam200());
+    expect(body.route).toBe("team");
+    const handoffs = body.trace.filter((event) => event.kind === "known" && event.type === "handoff");
+    expect(handoffs).toHaveLength(4);
+    expect(body.trace.every((event) => event.kind === "known")).toBe(true);
+    for (const node of ["team", "supervisor", "analista", "planejador", "executor"]) {
+      expect(traceEventSchema.parse({ type: "thought", content: "x", node }).kind).toBe("known");
+    }
+  });
+
+  it("keeps a malformed handoff as a generic event", () => {
+    expect(traceEventSchema.parse({ type: "handoff", from: "supervisor", to: "analista" }).kind).toBe("unknown");
+    expect(traceEventSchema.parse({ type: "handoff", from: "supervisor", to: "dba", brief: "x" }).kind).toBe("unknown");
   });
 });

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { action, answer, fallback, formatTrace, observation, plan, route, thought, withNode } from "./trace.js";
+import { action, answer, fallback, formatTrace, handoff, observation, plan, route, thought, withNode } from "./trace.js";
 
 test("formats typed trace events deterministically", () => {
   const output = formatTrace([
@@ -41,4 +41,21 @@ test("builds and formats fallback events", () => {
   const output = formatTrace([event, ...withNode([event], "react")]);
   assert.match(output, /^\[fallback\] primary\/model -> backup\/model \(503 upstream down\)$/m);
   assert.match(output, /^\[fallback@react\] primary\/model -> backup\/model \(503 upstream down\)$/m);
+});
+
+test("builds and formats supervisor handoff events", () => {
+  assert.deepEqual(handoff("analista", "liste alertas"), {
+    type: "handoff",
+    from: "supervisor",
+    to: "analista",
+    brief: "liste alertas",
+    node: "supervisor",
+  });
+  const limited = handoff("done", "resposta", true);
+  assert.equal(limited.type === "handoff" && limited.limitReached, true);
+  assert.equal(withNode([limited], "team")[0]?.node, "supervisor");
+
+  const output = formatTrace([handoff("analista", "liste alertas"), limited]);
+  assert.match(output, /\[handoff@supervisor\] -> analista liste alertas/);
+  assert.match(output, /\[handoff@supervisor\] -> done resposta \(limit\)/);
 });

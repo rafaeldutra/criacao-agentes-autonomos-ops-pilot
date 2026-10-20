@@ -21,7 +21,7 @@ import type {
   TraceEvent,
 } from "./types.js";
 
-export const PRODUCTION_ROUTES = ["react", "plan-and-execute", "reflect"] as const satisfies readonly StrategyRoute[];
+export const PRODUCTION_ROUTES = ["react", "plan-and-execute", "reflect", "team"] as const satisfies readonly StrategyRoute[];
 export const ROUTER_FAILED = "ROUTER_FAILED";
 
 export const routeDecisionSchema = z.object({
@@ -64,19 +64,21 @@ export type ProductionGraphOptions = {
   strategies: {
     react: ReasoningStrategy;
     "plan-and-execute": ReasoningStrategy;
+    team?: ReasoningStrategy;
   };
   decideRoute?: DecideRoute;
   reflectionOptions?: ReflectionOptions;
   model?: ReturnType<typeof createOpenRouterModel>;
 };
 
-const ROUTER_PROMPT = `You are the OpsPilot router. Choose exactly one route using this table:
+export const ROUTER_PROMPT = `You are the OpsPilot router. Choose exactly one route using this table:
 
 | route | when to use |
 |-------|-------------|
 | react | diagnostico iterativo com ferramentas |
 | plan-and-execute | tarefa com varios passos sequenciais |
 | reflect | conclusao operacional que precisa de critica extra |
+| team | investigar, decidir e agir sobre incidentes em etapas com papeis separados |
 
 Return only the structured route and one concise reason.`;
 
@@ -121,7 +123,7 @@ const assertDecision = (decision: RouteDecision | undefined): RouteDecision => {
 };
 
 /** Model fallbacks that happened while the node ran, stamped with that node. */
-const fallbackEvents = (node: GraphNode): TraceEvent[] =>
+export const fallbackEvents = (node: GraphNode): TraceEvent[] =>
   withNode(
     drainFallbacks().map((record) => fallbackEvent(record.fromModel, record.toModel, record.reason)),
     node,
@@ -174,8 +176,15 @@ export const createProductionGraph = (options: ProductionGraphOptions) => {
     }
   };
 
+  const baseStrategy = (route: StrategyRoute): ReasoningStrategy => {
+    if (route === "plan-and-execute") return options.strategies["plan-and-execute"];
+    if (route !== "team") return options.strategies.react;
+    if (!options.strategies.team) throw new RouterError("Team strategy is not configured");
+    return options.strategies.team;
+  };
+
   const runStrategy = (route: StrategyRoute) => async (state: typeof GraphState.State) => {
-    const base = route === "plan-and-execute" ? options.strategies["plan-and-execute"] : options.strategies.react;
+    const base = baseStrategy(route);
     const strategy = route === "reflect" || state.reflectRequested
       ? withReflection(base, options.reflectionOptions ?? {})
       : base;
@@ -205,6 +214,7 @@ export const createProductionGraph = (options: ProductionGraphOptions) => {
     .addNode("react", runStrategy("react"))
     .addNode("plan-and-execute", runStrategy("plan-and-execute"))
     .addNode("reflect", runStrategy("reflect"))
+    .addNode("team", runStrategy("team"))
     .addNode("response", responseNode)
     .addEdge(START, "context")
     .addEdge("context", "router")
@@ -212,10 +222,12 @@ export const createProductionGraph = (options: ProductionGraphOptions) => {
       react: "react",
       "plan-and-execute": "plan-and-execute",
       reflect: "reflect",
+      team: "team",
     })
     .addEdge("react", "response")
     .addEdge("plan-and-execute", "response")
     .addEdge("reflect", "response")
+    .addEdge("team", "response")
     .addEdge("response", END)
     .compile();
 };

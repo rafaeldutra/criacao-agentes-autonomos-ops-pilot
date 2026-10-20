@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createDefaultDecideRoute, createProductionGraph, RouterError, runProductionGraph } from "./production-graph.js";
+import { createDefaultDecideRoute, createProductionGraph, ROUTER_PROMPT, routeDecisionSchema, RouterError, runProductionGraph } from "./production-graph.js";
 import { createResilientModel, ModelUnavailableError, type ResilientModel } from "./model.js";
 import { createScriptedModel, statusError, type ScriptedModelOptions } from "./test-models.js";
 import type { Metrics, ReasoningStrategy } from "./types.js";
@@ -254,4 +254,95 @@ test("router failures become ROUTER_FAILED and skip strategies", async () => {
     (error) => error instanceof RouterError && error.code === "ROUTER_FAILED",
   );
   assert.deepEqual(calls, []);
+});
+
+const teamStub = (calls: string[]): ReasoningStrategy => ({
+  name: "team",
+  async run(input) {
+    calls.push(`team:${input}`);
+    return {
+      answer: "team answer",
+      trace: [
+        { type: "handoff", from: "supervisor", to: "analista", brief: "fatos", node: "supervisor" },
+        { type: "action", tool: "list_alerts", args: {}, node: "analista" },
+        { type: "handoff", from: "supervisor", to: "done", brief: "team answer", node: "supervisor" },
+        { type: "answer", content: "team answer" },
+      ],
+      metrics: metrics({ llmCalls: 3 }),
+    };
+  },
+});
+
+test("override team runs the team strategy and keeps the role nodes", async () => {
+  const calls: string[] = [];
+  const graph = createProductionGraph({
+    strategies: { react: stub("react", calls), "plan-and-execute": stub("plan-and-execute", calls), team: teamStub(calls) },
+    decideRoute: async () => {
+      throw new Error("router should not run");
+    },
+  });
+
+  const result = await runProductionGraph(graph, {
+    message: "checkout",
+    history: [],
+    summary: "",
+    memories: [],
+    budget: { summary: 200, window: 1200, memories: 300 },
+    override: "team",
+  });
+
+  assert.equal(result.route, "team");
+  assert.equal(result.answer, "team answer");
+  assert.equal(calls.length, 1);
+  assert.ok(result.trace.some((event) => event.type === "route" && event.route === "team" && event.reason === "client override"));
+  assert.deepEqual(
+    result.trace.filter((event) => event.type === "handoff").map((event) => event.node),
+    ["supervisor", "supervisor"],
+  );
+  assert.ok(result.trace.some((event) => event.type === "action" && event.node === "analista"));
+  assert.equal(result.trace.at(-1)?.node, "team");
+  assert.equal(result.metrics.llmCalls, 3);
+});
+
+test("router may choose team and its prompt lists the team route", async () => {
+  const calls: string[] = [];
+  const graph = createProductionGraph({
+    strategies: { react: stub("react", calls), "plan-and-execute": stub("plan-and-execute", calls), team: teamStub(calls) },
+    decideRoute: async () => ({ route: "team", reason: "investigar e agir", source: "llm" }),
+  });
+  const result = await runProductionGraph(graph, {
+    message: "investigue e abra incidente",
+    history: [],
+    summary: "",
+    memories: [],
+    budget: { summary: 200, window: 1200, memories: 300 },
+  });
+  assert.equal(result.route, "team");
+  assert.equal(routeDecisionSchema.safeParse({ route: "team", reason: "x" }).success, true);
+
+  const { model, state } = createScriptedModel({ structured: { route: "team", reason: "etapas" } });
+  const decision = await createDefaultDecideRoute(model as unknown as ResilientModel)("x");
+  assert.equal(decision.route, "team");
+  assert.ok(state.schemas.length === 1);
+  assert.match(ROUTER_PROMPT, /| team |/);
+});
+
+test("team route without a configured team strategy fails as a router error", async () => {
+  const calls: string[] = [];
+  const graph = createProductionGraph({
+    strategies: { react: stub("react", calls), "plan-and-execute": stub("plan-and-execute", calls) },
+    decideRoute: async () => ({ route: "react", reason: "unused" }),
+  });
+  await assert.rejects(
+    runProductionGraph(graph, {
+      message: "x",
+      history: [],
+      summary: "",
+      memories: [],
+      budget: { summary: 200, window: 1200, memories: 300 },
+      override: "team",
+    }),
+    RouterError,
+  );
+  assert.equal(calls.length, 0);
 });

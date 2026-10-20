@@ -4,14 +4,13 @@ import type { RequestDetail, RequestRecordInput, RequestStore, RequestSummary } 
 
 const DEFAULT_PATH = "./data/opspilot.db";
 
-const schema = `
-PRAGMA foreign_keys = ON;
-CREATE TABLE IF NOT EXISTS requests (
+/** Columns of `requests`; kept apart so the route migration can rebuild the table. */
+const REQUESTS_COLUMNS = `
   request_id       TEXT PRIMARY KEY,
   created_at       TEXT NOT NULL,
   conversation_id  TEXT,
   user_id          TEXT,
-  route            TEXT CHECK (route IN ('react', 'plan-and-execute', 'reflect')),
+  route            TEXT CHECK (route IN ('react', 'plan-and-execute', 'reflect', 'team')),
   reflect          INTEGER CHECK (reflect IN (0, 1)),
   status           INTEGER NOT NULL CHECK (status BETWEEN 100 AND 599),
   error_code       TEXT,
@@ -22,11 +21,19 @@ CREATE TABLE IF NOT EXISTS requests (
   history_messages INTEGER CHECK (history_messages >= 0),
   memory_facts     INTEGER CHECK (memory_facts >= 0),
   context_breakdown TEXT
-);
+`;
+
+const REQUESTS_INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_requests_conversation_created
   ON requests(conversation_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_requests_created
   ON requests(created_at);
+`;
+
+const schema = `
+PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS requests (${REQUESTS_COLUMNS});
+${REQUESTS_INDEXES}
 CREATE TABLE IF NOT EXISTS trace_events (
   request_id TEXT NOT NULL REFERENCES requests(request_id),
   seq        INTEGER NOT NULL CHECK (seq >= 0),
@@ -56,6 +63,36 @@ const migrate = (db: DatabaseSync): void => {
   const columns = db.prepare("PRAGMA table_info(requests)").all() as Array<{ name: string }>;
   if (!columns.some((column) => column.name === "context_breakdown")) {
     db.exec("ALTER TABLE requests ADD COLUMN context_breakdown TEXT");
+  }
+  allowTeamRoute(db);
+};
+
+/**
+ * Files created before the team route have a CHECK without 'team'. SQLite cannot
+ * alter a CHECK, so the table is rebuilt (copy, drop, rename) in one transaction.
+ */
+const allowTeamRoute = (db: DatabaseSync): void => {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'requests'").get() as
+    | { sql: string }
+    | undefined;
+  if (!row || row.sql.includes("'team'")) return;
+  const columns = (db.prepare("PRAGMA table_info(requests)").all() as Array<{ name: string }>)
+    .map((column) => column.name)
+    .join(", ");
+  db.exec("PRAGMA foreign_keys = OFF");
+  db.exec("BEGIN");
+  try {
+    db.exec(`CREATE TABLE requests_migrating (${REQUESTS_COLUMNS})`);
+    db.exec(`INSERT INTO requests_migrating (${columns}) SELECT ${columns} FROM requests`);
+    db.exec("DROP TABLE requests");
+    db.exec("ALTER TABLE requests_migrating RENAME TO requests");
+    db.exec(REQUESTS_INDEXES);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
   }
 };
 

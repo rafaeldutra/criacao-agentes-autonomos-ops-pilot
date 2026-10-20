@@ -14,6 +14,12 @@
   background: var(--color-warning-subtle);
 }
 
+/* Supervisor hand-offs read as section breaks between specialists. */
+.step[data-kind="handoff"] {
+  border-color: var(--color-accent);
+  border-left-width: var(--space-1);
+}
+
 .labels {
   display: flex;
   flex-wrap: wrap;
@@ -125,4 +131,22 @@
 
 .planStep[data-status="pending"] .stepStatus {
   color: var(--color-text-muted);
+}
+
+.handoffTarget {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+}
+
+.limit {
+  padding: 0 var(--space-2);
+  border: var(--border-width) solid var(--color-warning);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+  font-weight: var(--weight-medium);
+  color: var(--color-text);
 }

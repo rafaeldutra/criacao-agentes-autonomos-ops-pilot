@@ -1,0 +1,23 @@
+{
+  "requestId": "66666666-7777-4888-9999-aaaaaaaaaaaa",
+  "conversationId": "0a9b8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c6d",
+  "answer": "Abri o incidente inc-1 (high) para o checkout.",
+  "route": "team",
+  "trace": [
+    { "type": "thought", "content": "context built", "node": "context" },
+    { "type": "route", "route": "team", "reason": "client override", "node": "router" },
+    { "type": "handoff", "from": "supervisor", "to": "analista", "brief": "Levante alertas firing do checkout e o runbook.", "node": "supervisor" },
+    { "type": "action", "tool": "list_alerts", "args": { "status": "firing" }, "node": "analista" },
+    { "type": "observation", "content": "[{\"id\":\"al-1\",\"service\":\"checkout\"}]", "node": "analista" },
+    { "type": "answer", "content": "- al-1 firing no checkout", "node": "analista" },
+    { "type": "handoff", "from": "supervisor", "to": "planejador", "brief": "Planeje a resposta ao alerta <b>al-1</b>.", "node": "supervisor" },
+    { "type": "answer", "content": "1. Abrir incidente high no checkout.", "node": "planejador" },
+    { "type": "handoff", "from": "supervisor", "to": "executor", "brief": "Abra incidente high no checkout.", "node": "supervisor" },
+    { "type": "action", "tool": "open_incident", "args": { "title": "checkout lento", "service": "checkout", "severity": "high" }, "node": "executor" },
+    { "type": "observation", "content": "{\"id\":\"inc-1\"}", "node": "executor" },
+    { "type": "answer", "content": "Incidente inc-1 aberto.", "node": "executor" },
+    { "type": "handoff", "from": "supervisor", "to": "done", "brief": "Abri o incidente inc-1 (high) para o checkout.", "limitReached": true, "node": "supervisor" },
+    { "type": "answer", "content": "Abri o incidente inc-1 (high) para o checkout.", "node": "team" }
+  ],
+  "metrics": { "llmCalls": 7, "latencyMs": 2100, "historyMessages": 0, "memoryFacts": 0, "learningQueued": false }
+}

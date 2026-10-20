@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { expectNoAxeViolations } from "../../test/axe";
 import { chatFinal, createFakeClient } from "../../test/fakeClient";
-import { chat200 } from "../../test/fixtures";
+import { chat200, chatTeam200 } from "../../test/fixtures";
 import { renderChat } from "../../test/renderChat";
 
 async function openPanel(body: unknown = chat200()) {
@@ -82,5 +82,21 @@ describe("ReasoningPanel", () => {
     document.documentElement.dataset.theme = theme;
     const { container } = await openPanel();
     await expectNoAxeViolations(container);
+  });
+
+  it("renders supervisor handoffs as plain-text steps labeled by role", async () => {
+    const { dialog } = await openPanel(chatTeam200());
+    const steps = within(dialog).getAllByText("Passagem");
+    expect(steps).toHaveLength(4);
+    expect(within(dialog).getAllByText("Passagem para", { exact: false })[0]?.closest("p")?.textContent).toBe(
+      "Para: Passagem para Analista",
+    );
+    // The brief is text, never markup.
+    expect(within(dialog).getByText("Planeje a resposta ao alerta <b>al-1</b>.")).toBeInTheDocument();
+    expect(dialog.querySelector("b")).toBeNull();
+    expect(within(dialog).getByText("Teto de 8 passagens atingido")).toBeInTheDocument();
+    expect(within(dialog).getAllByText("Analista").length).toBeGreaterThan(1);
+    expect(within(dialog).getAllByText("Executor").length).toBeGreaterThan(1);
+    await expectNoAxeViolations(dialog);
   });
 });

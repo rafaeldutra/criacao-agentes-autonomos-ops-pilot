@@ -4,8 +4,21 @@ export type Severity = "low" | "medium" | "high" | "critical";
 export type ServiceTier = "tier1" | "tier2" | "tier3";
 export type IncidentFilter = "open" | "resolved" | "all";
 
-export type GraphNode = "context" | "router" | "react" | "plan-and-execute" | "reflect" | "response";
-export type StrategyRoute = Extract<GraphNode, "react" | "plan-and-execute" | "reflect">;
+export type TeamRole = "analista" | "planejador" | "executor";
+/** Where the team supervisor hands the work: a specialist or `done` (final answer). */
+export type TeamTarget = TeamRole | "done";
+
+export type GraphNode =
+  | "context"
+  | "router"
+  | "react"
+  | "plan-and-execute"
+  | "reflect"
+  | "team"
+  | "supervisor"
+  | TeamRole
+  | "response";
+export type StrategyRoute = Extract<GraphNode, "react" | "plan-and-execute" | "reflect" | "team">;
 
 export type RouteDecision = {
   route: StrategyRoute;
@@ -22,7 +35,8 @@ export type TraceEvent =
   | { type: "answer"; content: string; node?: GraphNode }
   | { type: "summarize"; content: string; node?: GraphNode }
   | { type: "route"; route: StrategyRoute; reason: string; node?: GraphNode }
-  | { type: "fallback"; fromModel: string; toModel: string; reason: string; node?: GraphNode };
+  | { type: "fallback"; fromModel: string; toModel: string; reason: string; node?: GraphNode }
+  | { type: "handoff"; from: "supervisor"; to: TeamTarget; brief: string; limitReached?: boolean; node?: GraphNode };
 
 export type ContextBreakdown = {
   memory: number;

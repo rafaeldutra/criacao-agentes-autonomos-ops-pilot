@@ -45,6 +45,8 @@ export const traceEventMeta = (event: TraceEvent, seq: number): LogFields => {
       return { ...base, route: event.route };
     case "fallback":
       return { ...base, fromModel: event.fromModel, toModel: event.toModel };
+    case "handoff":
+      return { ...base, to: event.to, ...(event.limitReached ? { limitReached: true } : {}), chars: event.brief.length };
     default:
       return base;
   }

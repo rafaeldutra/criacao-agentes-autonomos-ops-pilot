@@ -185,6 +185,27 @@ const contract = (name: string, make: () => RequestStore) => {
   });
 };
 
+const teamTrace: TraceEvent[] = [
+  { type: "route", route: "team", reason: "client override", node: "router" },
+  { type: "handoff", from: "supervisor", to: "analista", brief: "levante alertas", node: "supervisor" },
+  { type: "action", tool: "list_alerts", args: {}, node: "analista" },
+  { type: "handoff", from: "supervisor", to: "done", brief: "resposta", limitReached: true, node: "supervisor" },
+  { type: "answer", content: "resposta", node: "team" },
+];
+
+const teamContract = (name: string, make: () => RequestStore) => {
+  test(`${name}: persists a team turn with its handoff events in order`, () => {
+    const store = make();
+    store.record({ ...okRecord, route: "team", trace: teamTrace });
+    const detail = store.get(ID_OK);
+    assert.equal(detail?.route, "team");
+    assert.deepEqual(detail?.trace, teamTrace);
+  });
+};
+
+teamContract("FakeRequestStore", () => new FakeRequestStore());
+teamContract("SqliteRequestStore", () => new SqliteRequestStore(":memory:"));
+
 contract("FakeRequestStore", () => new FakeRequestStore());
 contract("SqliteRequestStore", () => new SqliteRequestStore(":memory:"));
 
@@ -220,6 +241,43 @@ test("SqliteRequestStore: adds context_breakdown to a database created before it
     store.record(okRecord);
     assert.deepEqual(store.get(ID_OK)?.metrics?.contextBreakdown, okRecord.metrics?.contextBreakdown);
     store.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("SqliteRequestStore: rebuilds a route CHECK created before the team route, keeping rows", () => {
+  const dir = mkdtempSync(join(tmpdir(), "opspilot-requests-"));
+  const path = join(dir, "requests.db");
+  try {
+    const seeded = new DatabaseSync(path);
+    seeded.exec(`PRAGMA foreign_keys = ON;
+    CREATE TABLE requests (
+      request_id TEXT PRIMARY KEY, created_at TEXT NOT NULL, conversation_id TEXT, user_id TEXT,
+      route TEXT CHECK (route IN ('react', 'plan-and-execute', 'reflect')), reflect INTEGER,
+      status INTEGER NOT NULL, error_code TEXT, latency_ms INTEGER NOT NULL, llm_calls INTEGER,
+      prompt_tokens INTEGER, model_used TEXT, history_messages INTEGER, memory_facts INTEGER, context_breakdown TEXT
+    );
+    CREATE TABLE trace_events (
+      request_id TEXT NOT NULL REFERENCES requests(request_id), seq INTEGER NOT NULL, node TEXT,
+      type TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY (request_id, seq)
+    );
+    INSERT INTO requests (request_id, created_at, route, status, latency_ms) VALUES ('${ID_ERR}', '2026-10-01T00:00:00.000Z', 'react', 200, 3);
+    INSERT INTO trace_events (request_id, seq, node, type, payload) VALUES ('${ID_ERR}', 0, 'react', 'answer', '{"content":"old"}');`);
+    seeded.close();
+
+    const store = new SqliteRequestStore(path);
+    store.record({ ...okRecord, route: "team", trace: teamTrace });
+    assert.equal(store.get(ID_OK)?.route, "team");
+    assert.deepEqual(store.get(ID_ERR)?.trace, [{ type: "answer", node: "react", content: "old" }]);
+    assert.throws(() =>
+      store.record({ ...errRecord, requestId: ID_MISSING, route: "bogus" as unknown as "team" }),
+    );
+    store.close();
+
+    const reopened = new SqliteRequestStore(path);
+    assert.equal(reopened.get(ID_OK)?.route, "team");
+    reopened.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
